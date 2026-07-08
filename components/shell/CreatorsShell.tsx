@@ -25,11 +25,12 @@ export function CreatorsShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const dispatch = useDispatch();
   const user = useSelector((s: RootState) => s.session.user);
+  const hydrated = useSelector((s: RootState) => s.session.hydrated);
   const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
-    if (!user) router.replace("/creators/login");
-  }, [user, router]);
+    if (hydrated && !user) router.replace("/creators/login");
+  }, [hydrated, user, router]);
 
   // Close the mobile drawer whenever the route changes.
   useEffect(() => {
@@ -53,7 +54,7 @@ export function CreatorsShell({ children }: { children: React.ReactNode }) {
 
   const totalActions = views.reduce((total, v) => total + actionCountForView(v.id, managerId), 0);
 
-  if (!user) return null;
+  if (!hydrated || !user) return null;
 
   return (
     <div className={`shell ${menuOpen ? "menu-open" : ""}`}>

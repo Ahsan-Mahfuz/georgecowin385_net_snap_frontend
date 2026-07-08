@@ -16,11 +16,12 @@ export function CollectiveShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const dispatch = useDispatch();
   const user = useSelector((s: RootState) => s.session.collectiveUser);
+  const hydrated = useSelector((s: RootState) => s.session.hydrated);
   const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
-    if (!user) router.replace("/collective/login");
-  }, [user, router]);
+    if (hydrated && !user) router.replace("/collective/login");
+  }, [hydrated, user, router]);
 
   useEffect(() => {
     setMenuOpen(false);
@@ -40,7 +41,7 @@ export function CollectiveShell({ children }: { children: React.ReactNode }) {
     : [];
   const totalPipeline = visibleDeals.reduce((total, d) => total + Number(d.amount || sum(d.monthValues || [])), 0);
 
-  if (!user) return null;
+  if (!hydrated || !user) return null;
 
   return (
     <div className={`shell collective-shell ${menuOpen ? "menu-open" : ""}`}>

@@ -8,14 +8,19 @@ export interface SessionState {
   portal: Portal | null;
   user: Profile | null; // creators profile
   collectiveUser: Profile | null; // collective profile
+  hydrated: boolean; // true once the client has restored state from localStorage
 }
 
-const STORAGE_KEY = "cowshed_session";
+export const STORAGE_KEY = "cowshed_session";
 
-function getInitialState(): SessionState {
-  const saved = storage.get<SessionState>(STORAGE_KEY);
-  return saved || { portal: null, user: null, collectiveUser: null };
-}
+// Deterministic initial state so the server and the first client render match.
+// The real session is restored after mount via `hydrateSession` (see SessionHydrator).
+const initialState: SessionState = {
+  portal: null,
+  user: null,
+  collectiveUser: null,
+  hydrated: false,
+};
 
 function persist(state: SessionState) {
   storage.set(STORAGE_KEY, state);
@@ -23,8 +28,17 @@ function persist(state: SessionState) {
 
 const sessionSlice = createSlice({
   name: "session",
-  initialState: getInitialState(),
+  initialState,
   reducers: {
+    hydrateSession: (state, action: PayloadAction<SessionState | null>) => {
+      const saved = action.payload;
+      if (saved) {
+        state.portal = saved.portal ?? null;
+        state.user = saved.user ?? null;
+        state.collectiveUser = saved.collectiveUser ?? null;
+      }
+      state.hydrated = true;
+    },
     loginCreators: (state, action: PayloadAction<Profile>) => {
       state.user = action.payload;
       state.portal = "creators";
@@ -50,5 +64,5 @@ const sessionSlice = createSlice({
   },
 });
 
-export const { loginCreators, loginCollective, logoutCreators, logoutCollective, resetPortal } = sessionSlice.actions;
+export const { hydrateSession, loginCreators, loginCollective, logoutCreators, logoutCollective, resetPortal } = sessionSlice.actions;
 export default sessionSlice.reducer;
