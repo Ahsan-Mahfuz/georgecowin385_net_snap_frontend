@@ -1,11 +1,17 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { months, money, sum } from "@/lib/format";
-import { managers, talentOptions, type Profile } from "@/lib/mock";
+import { type Profile } from "@/lib/mock";
 import { plModel, dealRevenue, scopedDeals, type PlMode } from "@/lib/pl";
+import { useCreatorsTeam } from "@/hooks/useCreatorsTeam";
+import { useGetDealsQuery } from "@/redux/api/dealApi";
+import { useGetOverheadsQuery } from "@/redux/api/overheadApi";
+import { useGetSettingsQuery } from "@/redux/api/settingsApi";
+import { useGetTalentsQuery } from "@/redux/api/talentApi";
+import { toDeal, toOverheadRow, talentNamesForManager } from "@/lib/adapters";
+import type { ApiTalent } from "@/redux/api/types";
 
-// Role is fixed for this static rebuild (admin sees the editable P&L).
 const ROLE: "admin" | "manager" = "admin";
 
 interface MatrixRow {
@@ -33,18 +39,25 @@ function currencyInput(value: number): string {
   }).format(Number(value || 0));
 }
 
-function managerName(id: string): string {
-  const manager = managers.find((user) => user.id === id);
-  return manager ? manager.name : id;
-}
-
 export default function PlLiveView() {
+  const { managers } = useCreatorsTeam();
+  const { data: dealData = [] } = useGetDealsQuery();
+  const { data: overheadData = [] } = useGetOverheadsQuery();
+  const { data: settings } = useGetSettingsQuery();
+  const { data: talentData = [] } = useGetTalentsQuery();
+
+  const deals = useMemo(() => dealData.map(toDeal), [dealData]);
+  const overheadRows = useMemo(() => overheadData.map(toOverheadRow), [overheadData]);
+  const targets = settings?.targets ?? new Array(12).fill(0);
+
+  const managerName = (id: string) => managers.find((u) => u.id === id)?.name || id;
+
   const [plMode, setPlMode] = useState<PlMode>("live");
   const [earningsMode, setEarningsMode] = useState<PlMode>("pipeline");
   const [selectedManagerId, setSelectedManagerId] = useState<string | null>(null);
 
   const mode = plMode;
-  const model = plModel(mode);
+  const model = plModel(deals, overheadRows, targets, mode);
 
   const rows: MatrixRow[] = [
     { label: "Target", values: model.target, editable: ROLE === "admin" && mode === "live", editType: "target" },
@@ -64,17 +77,17 @@ export default function PlLiveView() {
 
   // Manager earnings ---------------------------------------------------------
   const earningRows = managers
-    .map((manager: Profile) => ({ manager, total: sum(dealRevenue(earningsMode, manager.id)) }))
+    .map((manager: Profile) => ({ manager, total: sum(dealRevenue(deals, earningsMode, manager.id)) }))
     .sort((a, b) => b.total - a.total);
 
   const activeManagerId = selectedManagerId || earningRows[0]?.manager.id || null;
 
   const rosterRows: [string, number][] = (() => {
     if (!activeManagerId) return [];
-    const deals = scopedDeals(earningsMode, activeManagerId);
+    const managerDeals = scopedDeals(deals, earningsMode, activeManagerId);
     const totals = new Map<string, number>();
-    talentOptions(activeManagerId).forEach((talent) => totals.set(talent, 0));
-    deals.forEach((deal) => totals.set(deal.talentName, (totals.get(deal.talentName) || 0) + sum(deal.monthValues)));
+    talentNamesForManager(talentData as ApiTalent[], activeManagerId).forEach((talent) => totals.set(talent, 0));
+    managerDeals.forEach((deal) => totals.set(deal.talentName, (totals.get(deal.talentName) || 0) + sum(deal.monthValues)));
     return [...totals.entries()].sort((a, b) => b[1] - a[1]);
   })();
 

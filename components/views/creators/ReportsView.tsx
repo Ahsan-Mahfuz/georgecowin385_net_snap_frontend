@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { months, money, stageClass } from "@/lib/format";
-import { managers, users, talentOptions, reportStages } from "@/lib/mock";
+import { reportStages } from "@/lib/mock";
 
 // The reports view depends on the CRM data store (state.crmDeals, state.talentExpenses,
 // state.talentEmails, state.productionRequests, state.talentRemittanceSends). These are all
@@ -41,27 +41,15 @@ function talentKey(managerId: string, talentName: string): string {
   return `${managerId}::${talentName}`;
 }
 
+// CRM report deals are empty until deals carry stage/payment data. These are
+// passthroughs so the (empty) report tables compile.
 function managerName(id: string): string {
   if (id === "admin") return "Admin";
-  return users.find((user) => user.id === id)?.name || "Unassigned";
+  return id || "Unassigned";
 }
 
 function reportTalentOptions(): TalentOption[] {
-  const rows = new Map<string, TalentOption>();
-  managers.forEach((manager) => {
-    talentOptions(manager.id).forEach((talentName) => {
-      rows.set(talentKey(manager.id, talentName), {
-        key: talentKey(manager.id, talentName),
-        managerId: manager.id,
-        talentName,
-      });
-    });
-  });
-  return [...rows.values()].sort(
-    (a, b) =>
-      a.talentName.localeCompare(b.talentName) ||
-      managerName(a.managerId).localeCompare(managerName(b.managerId))
-  );
+  return [];
 }
 
 function displayDate(value: string): string {

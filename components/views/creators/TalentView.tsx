@@ -2,7 +2,12 @@
 
 import { useState } from "react";
 import { months, money, sum } from "@/lib/format";
-import { managers, users, allDeals, defaultTalents, Deal } from "@/lib/mock";
+import { Deal } from "@/lib/mock";
+import { useCreatorsTeam } from "@/hooks/useCreatorsTeam";
+import { useGetTalentsQuery } from "@/redux/api/talentApi";
+import { useGetDealsQuery } from "@/redux/api/dealApi";
+import { toDeal, talentNamesForManager } from "@/lib/adapters";
+import type { ApiTalent } from "@/redux/api/types";
 
 // This view reproduces the prototype's talentAdminView (admin / full-roster variant).
 // UI only — mutating buttons and inputs render for fidelity but are no-ops.
@@ -42,20 +47,26 @@ function talentKey(managerId: string, talentName: string): string {
   return `${managerId}::${talentName}`;
 }
 
+// Live data holders — set by the component at the top of each render so the
+// module-level helpers below (used by sub-components too) read current data.
+let liveUsers: { id: string; name: string }[] = [];
+let liveTalents: ApiTalent[] = [];
+let liveDeals: Deal[] = [];
+
 function managerName(id: string): string {
   if (id === "admin") return "Admin";
-  return users.find((user) => user.id === id)?.name || "Unassigned";
+  return liveUsers.find((u) => u.id === id)?.name || "Unassigned";
 }
 
 function talentOptions(managerId: string): string[] {
-  return defaultTalents[managerId] || [];
+  return talentNamesForManager(liveTalents, managerId);
 }
 
 function rosterRowsForManager(managerId: string): RosterRow[] {
   return talentOptions(managerId)
     .map((talentName) => {
-      const submittedDeals = allDeals.filter(
-        (deal) => deal.managerId === managerId && deal.talentName === talentName
+      const submittedDeals = liveDeals.filter(
+        (deal) => deal.managerId === managerId && deal.talentName === talentName,
       );
       return {
         key: talentKey(managerId, talentName),
@@ -418,6 +429,16 @@ function TalentInvoiceDetailsForm({
 }
 
 export default function TalentView() {
+  const { managers, users } = useCreatorsTeam();
+  const { data: talentData = [] } = useGetTalentsQuery();
+  const { data: dealData = [] } = useGetDealsQuery();
+  const allDeals: Deal[] = dealData.map(toDeal);
+
+  // Publish live data to the module-level helpers before rendering children.
+  liveUsers = users;
+  liveTalents = talentData as ApiTalent[];
+  liveDeals = allDeals;
+
   const [selectedManagerId, setSelectedManagerId] = useState<string>("all");
   const [selectedTalentKey, setSelectedTalentKey] = useState<string | null>(null);
 

@@ -2,12 +2,12 @@
 
 import { useMemo, useState } from "react";
 import { money } from "@/lib/format";
-import {
-  managers,
-  productionItems,
-  defaultProductionRates,
-  talentOptions,
-} from "@/lib/mock";
+import { productionItems } from "@/lib/mock";
+import { useCreatorsTeam } from "@/hooks/useCreatorsTeam";
+import { useGetTalentsQuery } from "@/redux/api/talentApi";
+import { useGetSettingsQuery } from "@/redux/api/settingsApi";
+import { talentNamesForManager } from "@/lib/adapters";
+import type { ApiTalent } from "@/redux/api/types";
 
 // Mirrors currencyInput() from the prototype.
 function currencyInput(value: number): string {
@@ -21,10 +21,10 @@ function currencyInput(value: number): string {
 type ProductionTab = "requests" | "rates";
 
 export default function ProductionView() {
-  // Prototype defaults: role = admin (can request + can manage rates),
-  // productionRequests empty on first load, rates = defaultProductionRates.
-  const productionRates = defaultProductionRates;
-  const requestManagers = managers;
+  const { managers: requestManagers } = useCreatorsTeam();
+  const { data: talentData = [] } = useGetTalentsQuery();
+  const { data: settings } = useGetSettingsQuery();
+  const productionRates: Record<string, number> = settings?.productionRates || {};
 
   const [activeTab, setActiveTab] = useState<ProductionTab>("requests");
   const [activeManagerId, setActiveManagerId] = useState<string>(
@@ -134,7 +134,7 @@ export default function ProductionView() {
                     placeholder="Add or choose talent"
                   />
                   <datalist id="production-talent-options">
-                    {talentOptions(activeManagerId).map((talentName) => (
+                    {talentNamesForManager(talentData as ApiTalent[], activeManagerId).map((talentName) => (
                       <option value={talentName} key={talentName}></option>
                     ))}
                   </datalist>

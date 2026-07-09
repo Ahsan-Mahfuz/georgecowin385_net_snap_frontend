@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { months, money, sum, usdToGbpRate, currencyMoney } from "@/lib/format";
-import { managers, paymentTerms, users } from "@/lib/mock";
+import { paymentTerms } from "@/lib/mock";
+import { useCreatorsTeam } from "@/hooks/useCreatorsTeam";
 
 // The CRM deal shape the prototype's cashflow view reads. On first load the
 // prototype's state.crmDeals collection is empty, so the derived tables render
@@ -23,9 +24,10 @@ interface CrmDeal {
   currency?: "GBP" | "USD";
 }
 
+// CRM cashflow deals are empty until deals carry payment terms; passthrough keeps
+// the (unrendered) rows compiling.
 function managerName(id: string): string {
-  const found = users.find((user) => user.id === id);
-  return found ? found.name : id;
+  return id;
 }
 
 function dealGbpAmount(deal: CrmDeal): number {
@@ -125,7 +127,7 @@ export default function CashflowView() {
   const [selectedMonthIndex, setSelectedMonthIndex] = useState<number | null>(null);
 
   // Managers accessible in the cashflow filter.
-  const accessibleManagers = managers;
+  const { managers: accessibleManagers } = useCreatorsTeam();
 
   // state.crmDeals is empty on first load — reproduce the empty pipeline.
   const crmDeals: CrmDeal[] = [];

@@ -1,100 +1,36 @@
 "use client";
 
+import { useState } from "react";
 import { months, money, sum, columnTotals } from "@/lib/format";
-import { computedOverheads } from "@/lib/pl";
 import type { OverheadRow } from "@/lib/mock";
-
-// UI-only rebuild of the prototype `overheadsView`. Static data, admin view.
-const ROLE: "admin" | "manager" = "admin";
-const LOCKED_IDS = ["bonus", "entertaining", "marketing"];
-
-interface MatrixRow {
-  id?: string;
-  label: string;
-  values: number[];
-  derivedValues?: number[];
-  editable?: boolean;
-  editType?: string;
-  total?: boolean;
-}
-
-function currencyInput(value: number): string {
-  return new Intl.NumberFormat("en-GB", {
-    style: "currency",
-    currency: "GBP",
-    maximumFractionDigits: 2,
-  }).format(Number(value || 0));
-}
-
-function EditableCell({ row, monthIndex }: { row: MatrixRow; monthIndex: number }) {
-  const key = row.editType === "target" ? "target" : "overhead";
-  const rowId = row.id || "target";
-  const derived = Number((row.derivedValues || [])[monthIndex] || 0);
-  return (
-    <input
-      className="table-input"
-      data-edit={key}
-      data-row-id={rowId}
-      data-month={monthIndex}
-      data-derived={derived}
-      inputMode="decimal"
-      defaultValue={currencyInput(row.values[monthIndex])}
-      aria-label={`${row.label} ${months[monthIndex]}`}
-    />
-  );
-}
-
-function TableValue({ row, index }: { row: MatrixRow; index: number }) {
-  if (row.editable) {
-    return (
-      <td>
-        <EditableCell row={row} monthIndex={index} />
-      </td>
-    );
-  }
-  return <td>{money(row.values[index])}</td>;
-}
-
-function MatrixTable({ rows }: { rows: MatrixRow[] }) {
-  return (
-    <table>
-      <thead>
-        <tr>
-          <th>Line item</th>
-          {months.map((month) => (
-            <th key={month}>{month}</th>
-          ))}
-          <th>Total</th>
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((row, rowIndex) => (
-          <tr key={row.id || `${row.label}-${rowIndex}`} className={row.total ? "total-row" : ""}>
-            <td>{row.label}</td>
-            {months.map((_, index) => (
-              <TableValue key={index} row={row} index={index} />
-            ))}
-            <td>{money(sum(row.values))}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  );
-}
+import { toOverheadRow } from "@/lib/adapters";
+import {
+  useGetOverheadsQuery,
+  useCreateOverheadMutation,
+  useDeleteOverheadMutation,
+} from "@/redux/api/overheadApi";
 
 export default function OverheadsView() {
-  const isAdmin = ROLE === "admin";
-  const undoStackLength = 0;
+  const { data = [], isLoading } = useGetOverheadsQuery();
+  const [createOverhead] = useCreateOverheadMutation();
+  const [deleteOverhead] = useDeleteOverheadMutation();
 
-  const computedRows: OverheadRow[] = computedOverheads();
-  const rows: MatrixRow[] = [
-    ...computedRows.map((row) => ({
-      ...row,
-      editable: isAdmin && !LOCKED_IDS.includes(row.id),
-      editType: "overhead",
-    })),
-    { label: "Total Overheads", values: columnTotals(computedRows), total: true },
-  ];
+  const rows: OverheadRow[] = data.map(toOverheadRow);
+  const totals = columnTotals(rows);
+
+  const [label, setLabel] = useState("");
+  const [monthIndex, setMonthIndex] = useState(0);
+  const [amount, setAmount] = useState("");
+
+  const handleAdd = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!label.trim()) return;
+    const values = new Array(12).fill(0);
+    values[monthIndex] = Number(amount) || 0;
+    await createOverhead({ label: label.trim(), values });
+    setLabel("");
+    setAmount("");
+  };
 
   return (
     <>
@@ -103,29 +39,86 @@ export default function OverheadsView() {
           <p className="eyebrow">Cowshed Creators Portal</p>
           <h1>Overheads</h1>
         </div>
-        <div className="asof">Overheads with commission and expenses pulled in</div>
+        <div className="asof">Monthly fixed and variable overheads</div>
       </div>
 
       <section className="section">
         <div className="section-head">
           <h2>Overheads model</h2>
-          <div className="section-actions">
-            {isAdmin ? (
-              <button className="secondary" data-undo disabled={undoStackLength === 0}>
-                Undo manual edit
-              </button>
-            ) : null}
-            <span className="pill admin">{isAdmin ? "Admin editable" : "View only"}</span>
-          </div>
+          <span className="pill">{money(sum(totals))} total</span>
         </div>
         <div className="table-wrap">
-          <MatrixTable rows={rows} />
+          <table>
+            <thead>
+              <tr>
+                <th>Line item</th>
+                {months.map((month) => (
+                  <th key={month}>{month}</th>
+                ))}
+                <th>Total</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.length ? (
+                <>
+                  {rows.map((row) => (
+                    <tr key={row.id}>
+                      <td>{row.label}</td>
+                      {months.map((_, index) => (
+                        <td key={index}>{money(row.values[index] || 0)}</td>
+                      ))}
+                      <td>{money(sum(row.values))}</td>
+                      <td>
+                        <button
+                          className="secondary danger-button small"
+                          type="button"
+                          onClick={() => deleteOverhead(row.id)}
+                        >
+                          Remove
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  <tr className="total-row">
+                    <td>Total Overheads</td>
+                    {totals.map((t, i) => (
+                      <td key={i}>{money(t)}</td>
+                    ))}
+                    <td>{money(sum(totals))}</td>
+                    <td></td>
+                  </tr>
+                </>
+              ) : (
+                <tr>
+                  <td colSpan={15}>
+                    {isLoading ? "Loading…" : "No overheads yet. Add a line below."}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
         <div className="section-body">
-          <div className="notice">
-            Bonuses and commission, Client entertaining, and Marketing are locked here. Commission comes from approved
-            commission rules; expenses come through the Expenses tab.
-          </div>
+          <form className="form-grid" onSubmit={handleAdd}>
+            <div className="field">
+              <label htmlFor="ohLabel">Line item</label>
+              <input id="ohLabel" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="e.g. Staff, Marketing" required />
+            </div>
+            <div className="field">
+              <label htmlFor="ohMonth">Month</label>
+              <select id="ohMonth" value={monthIndex} onChange={(e) => setMonthIndex(Number(e.target.value))}>
+                {months.map((m, i) => (
+                  <option key={m} value={i}>{m}</option>
+                ))}
+              </select>
+            </div>
+            <div className="field">
+              <label htmlFor="ohAmount">Amount</label>
+              <input id="ohAmount" type="number" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0.00" />
+            </div>
+            <button className="primary wide" type="submit">Add overhead line</button>
+          </form>
         </div>
       </section>
     </>

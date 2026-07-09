@@ -8,6 +8,7 @@ export interface SessionState {
   portal: Portal | null;
   user: Profile | null; // creators profile
   collectiveUser: Profile | null; // collective profile
+  token: string | null; // bearer token issued at login (mock)
   hydrated: boolean; // true once the client has restored state from localStorage
 }
 
@@ -19,6 +20,7 @@ const initialState: SessionState = {
   portal: null,
   user: null,
   collectiveUser: null,
+  token: null,
   hydrated: false,
 };
 
@@ -36,25 +38,30 @@ const sessionSlice = createSlice({
         state.portal = saved.portal ?? null;
         state.user = saved.user ?? null;
         state.collectiveUser = saved.collectiveUser ?? null;
+        state.token = saved.token ?? null;
       }
       state.hydrated = true;
     },
-    loginCreators: (state, action: PayloadAction<Profile>) => {
-      state.user = action.payload;
+    loginCreators: (state, action: PayloadAction<{ user: Profile; token: string }>) => {
+      state.user = action.payload.user;
+      state.token = action.payload.token;
       state.portal = "creators";
       persist(state);
     },
-    loginCollective: (state, action: PayloadAction<Profile>) => {
-      state.collectiveUser = action.payload;
+    loginCollective: (state, action: PayloadAction<{ user: Profile; token: string }>) => {
+      state.collectiveUser = action.payload.user;
+      state.token = action.payload.token;
       state.portal = "collective";
       persist(state);
     },
     logoutCreators: (state) => {
       state.user = null;
+      state.token = null;
       persist(state);
     },
     logoutCollective: (state) => {
       state.collectiveUser = null;
+      state.token = null;
       persist(state);
     },
     resetPortal: (state) => {

@@ -2,14 +2,11 @@
 
 import { Fragment, useState } from "react";
 import { months, money, currentMonthIndex } from "@/lib/format";
-import { users, managers, talentOptions } from "@/lib/mock";
+import { useCreatorsTeam } from "@/hooks/useCreatorsTeam";
+import { useGetTalentsQuery } from "@/redux/api/talentApi";
+import { refId } from "@/lib/adapters";
 
 // ---- local helpers mirrored from the prototype (app.js) ----------------------
-
-function managerName(id: string): string {
-  if (id === "admin") return "Admin";
-  return users.find((user) => user.id === id)?.name || "Unassigned";
-}
 
 function talentKey(managerId: string, talentName: string): string {
   return `${managerId}::${talentName}`;
@@ -38,25 +35,6 @@ interface TalentRow {
   talentName: string;
 }
 
-// reportTalentOptions(crmDeals) — crmDeals is empty on first load, so the rows
-// come purely from every visible manager's roster (admin/finance see all).
-function reportTalentOptions(): TalentRow[] {
-  const rows = new Map<string, TalentRow>();
-  managers.forEach((manager) => {
-    talentOptions(manager.id).forEach((talentName) => {
-      rows.set(talentKey(manager.id, talentName), {
-        key: talentKey(manager.id, talentName),
-        managerId: manager.id,
-        talentName,
-      });
-    });
-  });
-  return [...rows.values()].sort(
-    (a, b) =>
-      a.talentName.localeCompare(b.talentName) ||
-      managerName(a.managerId).localeCompare(managerName(b.managerId)),
-  );
-}
 
 // ---- invoice model (empty with static data — crmDeals is empty on load) ------
 
@@ -132,6 +110,10 @@ function statusClass(invoice: TalentInvoice): string {
 }
 
 export default function TalentInvoicesView() {
+  const { users } = useCreatorsTeam();
+  const { data: talentData = [] } = useGetTalentsQuery();
+  const managerName = (id: string) => users.find((u) => u.id === id)?.name || "Unassigned";
+
   const [selectedTalentKey, setSelectedTalentKey] = useState<string>("all");
   const [mode, setMode] = useState<"month" | "custom">("month");
   const [monthIndex, setMonthIndex] = useState<number>(currentMonthIndex());
@@ -139,10 +121,15 @@ export default function TalentInvoicesView() {
   const [endDate, setEndDate] = useState<string>("2026-12-31");
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<string | null>(null);
 
-  // Static prototype data: crmDeals is empty on first load, so there are no
-  // talent invoices to build.
+  // Talent invoices are built from CRM deals (empty until deals carry invoice
+  // data). The talent roster comes from the live Talent collection.
   const allInvoices: TalentInvoice[] = [];
-  const talentRows = reportTalentOptions();
+  const talentRows: TalentRow[] = talentData
+    .map((t) => {
+      const managerId = refId(t.manager);
+      return { key: talentKey(managerId, t.name), managerId, talentName: t.name };
+    })
+    .sort((a, b) => a.talentName.localeCompare(b.talentName));
 
   const range =
     mode === "custom"

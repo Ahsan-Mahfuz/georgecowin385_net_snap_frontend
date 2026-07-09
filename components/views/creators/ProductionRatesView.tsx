@@ -1,23 +1,31 @@
 "use client";
 
-import { useState } from "react";
-import { productionItems, defaultProductionRates } from "@/lib/mock";
-
-function currencyInput(value: number): string {
-  return new Intl.NumberFormat("en-GB", {
-    style: "currency",
-    currency: "GBP",
-    maximumFractionDigits: 2,
-  }).format(Number(value || 0));
-}
+import { useEffect, useState } from "react";
+import { productionItems } from "@/lib/mock";
+import { useGetSettingsQuery, useUpdateSettingsMutation } from "@/redux/api/settingsApi";
 
 export default function ProductionRatesView() {
-  const [rates, setRates] = useState<Record<string, string>>(() =>
-    productionItems.reduce<Record<string, string>>((acc, item) => {
-      acc[item] = currencyInput(defaultProductionRates[item]);
+  const { data: settings } = useGetSettingsQuery();
+  const [updateSettings, { isLoading }] = useUpdateSettingsMutation();
+
+  const [rates, setRates] = useState<Record<string, string>>({});
+
+  // Seed the editable fields from live settings once they arrive.
+  useEffect(() => {
+    const live = settings?.productionRates || {};
+    setRates(productionItems.reduce<Record<string, string>>((acc, item) => {
+      acc[item] = String(live[item] ?? 0);
       return acc;
-    }, {})
-  );
+    }, {}));
+  }, [settings]);
+
+  const handleSave = async () => {
+    const productionRates = productionItems.reduce<Record<string, number>>((acc, item) => {
+      acc[item] = Number(rates[item]) || 0;
+      return acc;
+    }, {});
+    await updateSettings({ productionRates });
+  };
 
   return (
     <>
@@ -38,17 +46,19 @@ export default function ProductionRatesView() {
             <div className="form-grid">
               {productionItems.map((item) => (
                 <div className="field" key={item}>
-                  <label>{item}</label>
+                  <label>{item} (£/day)</label>
                   <input
-                    data-production-rate={item}
-                    value={rates[item]}
-                    inputMode="decimal"
-                    onChange={(e) =>
-                      setRates((prev) => ({ ...prev, [item]: e.target.value }))
-                    }
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={rates[item] ?? ""}
+                    onChange={(e) => setRates((prev) => ({ ...prev, [item]: e.target.value }))}
                   />
                 </div>
               ))}
+              <button className="primary wide" type="button" onClick={handleSave} disabled={isLoading}>
+                {isLoading ? "Saving…" : "Save rates"}
+              </button>
             </div>
           </div>
         </section>

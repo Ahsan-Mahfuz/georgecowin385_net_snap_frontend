@@ -1,7 +1,6 @@
 "use client";
 
 import { money } from "@/lib/format";
-import { managers } from "@/lib/mock";
 
 // ---------------------------------------------------------------------------
 // Static data. The prototype builds these two lists from live state
@@ -41,8 +40,9 @@ const talentExpenseActions: TalentExpenseAction[] = [];
 const actionDeals: CrmDeal[] = [];
 
 function managerName(managerId: string): string {
-  const manager = managers.find((m) => m.id === managerId);
-  return manager?.name || "Unassigned";
+  // These action lists are empty until wired to live finance data; kept as a
+  // passthrough so the (unrendered) cards still compile.
+  return managerId || "Unassigned";
 }
 
 function dealInvoiceTotal(deal: CrmDeal): number {

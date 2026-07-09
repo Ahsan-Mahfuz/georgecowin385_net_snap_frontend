@@ -1,24 +1,18 @@
 "use client";
 
 import { useState } from "react";
+import { useSelector } from "react-redux";
+import { RootState } from "@/redux/store";
 import { months, money, sum } from "@/lib/format";
 import {
-  collectiveSalesUsers,
   collectiveStages,
   paymentTerms,
-  defaultCollectiveDeals,
   type CollectiveDeal,
   type Profile,
 } from "@/lib/mock";
-
-// The collective portal is viewed as an admin in this static rebuild, so every
-// collective deal is visible and only the owner filter (default "all") applies.
-const collectiveUser: Profile = collectiveSalesUsers[0];
-const collectiveOwnerFilter = "all";
-
-function collectiveUserName(id: string): string {
-  return collectiveSalesUsers.find((user) => user.id === id)?.name || "Unassigned";
-}
+import { useCollectiveTeam } from "@/hooks/useCollectiveTeam";
+import { useGetCollectiveDealsQuery } from "@/redux/api/collectiveDealApi";
+import { toCollectiveDeal } from "@/lib/adapters";
 
 function collectiveDealTotal(deal: CollectiveDeal): number {
   return Number(deal.amount || sum(deal.monthValues || []));
@@ -26,23 +20,6 @@ function collectiveDealTotal(deal: CollectiveDeal): number {
 
 function collectiveScheduledTotal(deal: CollectiveDeal): number {
   return sum(deal.monthValues || []);
-}
-
-function collectiveVisibleDeals(): CollectiveDeal[] {
-  if (collectiveUser?.role === "admin") return defaultCollectiveDeals;
-  return defaultCollectiveDeals.filter((deal) => deal.ownerId === collectiveUser?.id);
-}
-
-function collectiveFilteredDeals(): CollectiveDeal[] {
-  // applyStageFilter = false in the quarter view.
-  return collectiveVisibleDeals()
-    .filter((deal) => collectiveOwnerFilter === "all" || deal.ownerId === collectiveOwnerFilter)
-    .slice()
-    .sort(
-      (a, b) =>
-        collectiveStages.indexOf(a.stage) - collectiveStages.indexOf(b.stage) ||
-        a.company.localeCompare(b.company)
-    );
 }
 
 function currencyInput(value: number | string | undefined): string {
@@ -54,9 +31,24 @@ function currencyInput(value: number | string | undefined): string {
 }
 
 export default function CollectiveQuartersView() {
+  const sessionUser = useSelector((s: RootState) => s.session.collectiveUser);
+  const { users: collectiveSalesUsers } = useCollectiveTeam();
+  const { data: dealData = [] } = useGetCollectiveDealsQuery();
+  const collectiveUser: Profile | null = sessionUser;
+  const collectiveUserName = (id: string): string =>
+    collectiveSalesUsers.find((user) => user.id === id)?.name || "Unassigned";
+
   const [selectedDealId, setSelectedDealId] = useState<string | null>(null);
 
-  const deals = collectiveFilteredDeals();
+  const visibleDeals =
+    collectiveUser?.role === "admin"
+      ? dealData.map(toCollectiveDeal)
+      : dealData.map(toCollectiveDeal).filter((deal) => deal.ownerId === collectiveUser?.id);
+  const deals = [...visibleDeals].sort(
+    (a, b) =>
+      collectiveStages.indexOf(a.stage) - collectiveStages.indexOf(b.stage) ||
+      a.company.localeCompare(b.company),
+  );
   const quarterLabels = ["Q1", "Q2", "Q3", "Q4"];
   const quarterValues = [0, 1, 2, 3].map((quarterIndex) =>
     deals.reduce((total, deal) => {
@@ -65,7 +57,7 @@ export default function CollectiveQuartersView() {
     }, 0)
   );
 
-  const selectedDeal = defaultCollectiveDeals.find((item) => item.id === selectedDealId) || null;
+  const selectedDeal = deals.find((item) => item.id === selectedDealId) || null;
 
   return (
     <>

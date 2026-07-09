@@ -3,16 +3,13 @@
 import { useState } from "react";
 import { months, money, sum } from "@/lib/format";
 import {
-  collectiveSalesUsers,
   collectiveStages,
   paymentTerms,
-  defaultCollectiveDeals,
   type CollectiveDeal,
 } from "@/lib/mock";
-
-function collectiveUserName(id: string): string {
-  return (collectiveSalesUsers.find((user) => user.id === id) || ({} as { name?: string })).name || "Unassigned";
-}
+import { useCollectiveTeam } from "@/hooks/useCollectiveTeam";
+import { useGetCollectiveDealsQuery } from "@/redux/api/collectiveDealApi";
+import { toCollectiveDeal } from "@/lib/adapters";
 
 function collectiveDealTotal(deal: CollectiveDeal): number {
   return Number(deal.amount || sum(deal.monthValues || []));
@@ -30,20 +27,20 @@ function currencyInput(value: number): string {
   }).format(Number(value || 0));
 }
 
-// Admin view: all collective deals are visible. Owner/stage filters default to "all".
-function collectiveFilteredDeals(): CollectiveDeal[] {
-  return [...defaultCollectiveDeals].sort(
+export default function CollectiveMonthsView() {
+  const { users: collectiveSalesUsers } = useCollectiveTeam();
+  const { data: dealData = [] } = useGetCollectiveDealsQuery();
+  const collectiveUserName = (id: string): string =>
+    collectiveSalesUsers.find((user) => user.id === id)?.name || "Unassigned";
+
+  const [monthFilter, setMonthFilter] = useState<string>("all");
+  const [selectedDealId, setSelectedDealId] = useState<string | null>(null);
+
+  const deals = [...dealData.map(toCollectiveDeal)].sort(
     (a, b) =>
       collectiveStages.indexOf(a.stage) - collectiveStages.indexOf(b.stage) ||
       a.company.localeCompare(b.company),
   );
-}
-
-export default function CollectiveMonthsView() {
-  const [monthFilter, setMonthFilter] = useState<string>("all");
-  const [selectedDealId, setSelectedDealId] = useState<string | null>(null);
-
-  const deals = collectiveFilteredDeals();
   const monthlyTotals = months.map((_, index) =>
     deals.reduce((total, deal) => total + Number((deal.monthValues || [])[index] || 0), 0),
   );

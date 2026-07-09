@@ -1,68 +1,58 @@
 "use client";
 
-import { useState } from "react";
-import { money, stageClass } from "@/lib/format";
-import {
-  crmStages,
-  managers,
-  paymentTerms,
-  roleLabel,
-  talentOptions,
-} from "@/lib/mock";
+import { useMemo, useState } from "react";
+import { money, sum, stageClass } from "@/lib/format";
+import { crmStages } from "@/lib/mock";
+import { useCreatorsTeam } from "@/hooks/useCreatorsTeam";
+import { useGetTalentsQuery } from "@/redux/api/talentApi";
+import { useGetDealsQuery, useCreateDealMutation } from "@/redux/api/dealApi";
+import { toDeal, talentNamesForManager } from "@/lib/adapters";
+import type { ApiTalent } from "@/redux/api/types";
 
 const manualCrmStages = crmStages.filter((stage) => stage !== "Paid");
-const crmDirections = ["Inbound", "Outbound"];
-
-function talentKey(managerId: string, talentName: string): string {
-  return `${managerId}::${talentName}`;
-}
-
-function managerName(id: string): string {
-  return managers.find((manager) => manager.id === id)?.name || id;
-}
-
-interface CrmTalentRow {
-  key: string;
-  managerId: string;
-  talentName: string;
-}
-
-// Mirrors crmTalentFilterRows() for the empty-data case (no CRM deals yet).
-function crmTalentFilterRows(): CrmTalentRow[] {
-  const rows = new Map<string, CrmTalentRow>();
-  managers.forEach((manager) => {
-    talentOptions(manager.id).forEach((talentName) => {
-      rows.set(talentKey(manager.id, talentName), {
-        key: talentKey(manager.id, talentName),
-        managerId: manager.id,
-        talentName,
-      });
-    });
-  });
-  return [...rows.values()].sort(
-    (a, b) =>
-      a.talentName.localeCompare(b.talentName) ||
-      managerName(a.managerId).localeCompare(managerName(b.managerId)),
-  );
-}
 
 export default function CrmView() {
-  // Admin (all-roster) perspective. CRM deals are empty on first load.
-  const accessibleManagers = managers;
-  const formManagers = managers;
-  const canCreateCrmDeal = true;
+  const { managers } = useCreatorsTeam();
+  const { data: talentData = [] } = useGetTalentsQuery();
+  const { data: dealData = [] } = useGetDealsQuery();
+  const [createDeal, { isLoading: creating }] = useCreateDealMutation();
 
-  const [selectedCrmManagerId, setSelectedCrmManagerId] = useState("all");
-  const [selectedCrmTalentKey, setSelectedCrmTalentKey] = useState("all");
-  const [activeCrmStage, setActiveCrmStage] = useState("all");
-  const [crmPaidOpen, setCrmPaidOpen] = useState(false);
-  const [crmAddOpen, setCrmAddOpen] = useState(false);
-  const [formManagerId, setFormManagerId] = useState(formManagers[0]?.id || "");
+  const deals = useMemo(() => dealData.map(toDeal), [dealData]);
+  const managerName = (id: string) => managers.find((m) => m.id === id)?.name || id;
 
-  const crmTalentRows = crmTalentFilterRows();
+  const [managerFilter, setManagerFilter] = useState("all");
+  const [stageFilter, setStageFilter] = useState("all");
+  const [addOpen, setAddOpen] = useState(false);
+  const [form, setForm] = useState({ managerId: "", talentName: "", stage: "Conversation", campaignName: "", status: "Pipeline" as "Pipeline" | "Confirmed", amount: "" });
 
-  // No CRM deals seeded, so every stage renders its empty state.
-  const totalVisible = 0;
+  const filtered = deals.filter((d) => {
+    if (managerFilter !== "all" && d.managerId !== managerFilter) return false;
+    if (stageFilter !== "all" && (d.status === "Confirmed" ? "Paid" : d.stage || "Conversation") !== stageFilter) return false;
+    return true;
+  });
+
+  // Group by the deal's stage (fall back to Conversation).
+  const stageOf = (d: (typeof deals)[number]) => d.stage || (d.status === "Confirmed" ? "Contract Signed" : "Conversation");
+  const dealTotal = (d: (typeof deals)[number]) => sum(d.monthValues);
+  const totalVisible = filtered.reduce((t, d) => t + dealTotal(d), 0);
+
+  const handleAdd = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!form.managerId || !form.talentName.trim()) return;
+    const monthValues = new Array(12).fill(0);
+    // Put the whole amount in the current-ish first month for simplicity.
+    monthValues[0] = Number(form.amount) || 0;
+    await createDeal({
+      manager: form.managerId,
+      talentName: form.talentName.trim(),
+      status: form.status,
+      stage: form.stage,
+      campaignName: form.campaignName,
+      monthValues,
+    });
+    setForm({ ...form, talentName: "", campaignName: "", amount: "" });
+    setAddOpen(false);
+  };
 
   return (
     <>
@@ -80,13 +70,16 @@ export default function CrmView() {
           <span className="pill">{money(totalVisible)}</span>
         </div>
         <div className="section-body earnings-grid">
-          {crmStages.map((stage) => (
-            <div className="earning" key={stage}>
-              <span>{stage}</span>
-              <strong>{money(0)}</strong>
-              <small>0 deals</small>
-            </div>
-          ))}
+          {crmStages.map((stage) => {
+            const stageDeals = filtered.filter((d) => stageOf(d) === stage);
+            return (
+              <div className="earning" key={stage}>
+                <span>{stage}</span>
+                <strong>{money(stageDeals.reduce((t, d) => t + dealTotal(d), 0))}</strong>
+                <small>{stageDeals.length} deals</small>
+              </div>
+            );
+          })}
         </div>
       </section>
 
@@ -94,50 +87,19 @@ export default function CrmView() {
         <div className="section-head">
           <h2>Deals by stage</h2>
           <div className="section-actions">
-            {canCreateCrmDeal ? (
-              <button
-                className="primary add-crm-toggle"
-                type="button"
-                onClick={() => setCrmAddOpen((open) => !open)}
-              >
-                {crmAddOpen ? "Close add CRM deal" : "Add CRM deal"}
-              </button>
-            ) : null}
-            <select
-              className="compact-select"
-              value={selectedCrmManagerId}
-              onChange={(event) => setSelectedCrmManagerId(event.target.value)}
-            >
+            <button className="primary add-crm-toggle" type="button" onClick={() => setAddOpen((o) => !o)}>
+              {addOpen ? "Close add CRM deal" : "Add CRM deal"}
+            </button>
+            <select className="compact-select" value={managerFilter} onChange={(e) => setManagerFilter(e.target.value)}>
               <option value="all">All managers</option>
-              {accessibleManagers.map((manager) => (
-                <option value={manager.id} key={manager.id}>
-                  {manager.name}
-                </option>
+              {managers.map((m) => (
+                <option value={m.id} key={m.id}>{m.name}</option>
               ))}
             </select>
-            <select
-              className="compact-select"
-              value={selectedCrmTalentKey}
-              onChange={(event) => setSelectedCrmTalentKey(event.target.value)}
-            >
-              <option value="all">All talent</option>
-              {crmTalentRows.map((row) => (
-                <option value={row.key} key={row.key}>
-                  {row.talentName}
-                  {accessibleManagers.length > 1 ? ` - ${managerName(row.managerId)}` : ""}
-                </option>
-              ))}
-            </select>
-            <select
-              className="compact-select"
-              value={activeCrmStage}
-              onChange={(event) => setActiveCrmStage(event.target.value)}
-            >
+            <select className="compact-select" value={stageFilter} onChange={(e) => setStageFilter(e.target.value)}>
               <option value="all">All stages</option>
               {crmStages.map((stage) => (
-                <option value={stage} key={stage}>
-                  {stage}
-                </option>
+                <option value={stage} key={stage}>{stage}</option>
               ))}
             </select>
           </div>
@@ -145,215 +107,84 @@ export default function CrmView() {
 
         <div className="crm-board">
           {crmStages.map((stage) => {
-            const isPaidStage = stage === "Paid";
-            const isPaidOpen = !isPaidStage || crmPaidOpen;
+            const stageDeals = filtered.filter((d) => stageOf(d) === stage);
             return (
-              <div
-                className={`crm-column ${stageClass(stage)} ${
-                  isPaidStage && !isPaidOpen ? "crm-column-collapsed" : ""
-                }`}
-                data-crm-stage-drop={stage}
-                key={stage}
-              >
+              <div className={`crm-column ${stageClass(stage)}`} key={stage}>
                 <div className="crm-column-head">
                   <span>{stage}</span>
-                  <strong>{money(0)}</strong>
+                  <strong>{money(stageDeals.reduce((t, d) => t + dealTotal(d), 0))}</strong>
                 </div>
-                {isPaidStage ? (
-                  <button
-                    className="crm-paid-toggle"
-                    type="button"
-                    aria-expanded={crmPaidOpen ? "true" : "false"}
-                    onClick={() => setCrmPaidOpen((open) => !open)}
-                  >
-                    <span>{crmPaidOpen ? "Hide paid deals" : "Show paid deals"}</span>
-                    <strong>0 deals</strong>
-                  </button>
-                ) : null}
-                {isPaidOpen ? (
-                  <div className="crm-card-list" data-crm-stage-drop={stage}>
+                <div className="crm-card-list">
+                  {stageDeals.length ? (
+                    stageDeals.map((d) => (
+                      <div className="crm-card" key={d.id}>
+                        <strong>{d.talentName}</strong>
+                        <span>{d.campaignName || "No campaign"} · {money(dealTotal(d))}</span>
+                        <small>{managerName(d.managerId)}</small>
+                      </div>
+                    ))
+                  ) : (
                     <div className="crm-empty">No deals</div>
-                  </div>
-                ) : null}
+                  )}
+                </div>
               </div>
             );
           })}
         </div>
       </section>
 
-      {canCreateCrmDeal && crmAddOpen ? (
+      {addOpen ? (
         <div className="crm-add-overlay">
-          <section
-            className="section crm-add-panel open"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Add CRM deal"
-          >
-            <button
-              className="crm-detail-close"
-              type="button"
-              aria-label="Close add CRM deal"
-              onClick={() => setCrmAddOpen(false)}
-            >
-              ×
-            </button>
+          <section className="section crm-add-panel open" role="dialog" aria-modal="true" aria-label="Add CRM deal">
+            <button className="crm-detail-close" type="button" aria-label="Close" onClick={() => setAddOpen(false)}>×</button>
             <div className="section-head">
               <h2>Add CRM deal</h2>
-              <span className="pill confirmed">{`${roleLabel("admin")} entry`}</span>
             </div>
             <div className="section-body">
-              <form className="form-grid" onSubmit={(event) => event.preventDefault()}>
+              <form className="form-grid" onSubmit={handleAdd}>
                 <div className="field">
                   <label htmlFor="crmManagerId">Talent manager</label>
-                  <select
-                    id="crmManagerId"
-                    name="managerId"
-                    value={formManagerId}
-                    onChange={(event) => setFormManagerId(event.target.value)}
-                  >
-                    {formManagers.map((manager) => (
-                      <option value={manager.id} key={manager.id}>
-                        {manager.name}
-                      </option>
+                  <select id="crmManagerId" value={form.managerId} onChange={(e) => setForm({ ...form, managerId: e.target.value })} required>
+                    <option value="">Choose manager</option>
+                    {managers.map((m) => (
+                      <option value={m.id} key={m.id}>{m.name}</option>
                     ))}
                   </select>
                 </div>
                 <div className="field">
                   <label htmlFor="crmTalentName">Talent name</label>
-                  <input
-                    id="crmTalentName"
-                    name="talentName"
-                    list="crm-talent-options"
-                    required
-                    placeholder="Add or choose talent"
-                  />
+                  <input id="crmTalentName" list="crm-talent-options" required value={form.talentName} onChange={(e) => setForm({ ...form, talentName: e.target.value })} placeholder="Add or choose talent" />
                   <datalist id="crm-talent-options">
-                    {talentOptions(formManagerId).map((name) => (
+                    {talentNamesForManager(talentData as ApiTalent[], form.managerId).map((name) => (
                       <option value={name} key={name}></option>
                     ))}
                   </datalist>
                 </div>
                 <div className="field">
-                  <label htmlFor="crmDirection">Inbound or outbound</label>
-                  <select id="crmDirection" name="direction">
-                    {crmDirections.map((direction) => (
-                      <option key={direction}>{direction}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="field">
                   <label htmlFor="crmStage">Stage</label>
-                  <select id="crmStage" name="stage">
+                  <select id="crmStage" value={form.stage} onChange={(e) => setForm({ ...form, stage: e.target.value })}>
                     {manualCrmStages.map((stage) => (
                       <option key={stage}>{stage}</option>
                     ))}
                   </select>
                 </div>
                 <div className="field">
-                  <label htmlFor="crmAmount">Deal amount</label>
-                  <input
-                    id="crmAmount"
-                    name="amount"
-                    required
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    placeholder="0.00"
-                  />
-                </div>
-                <div className="field checkbox-field">
-                  <label htmlFor="crmCurrencyUsd">Switch to dollars</label>
-                  <label className="toggle-line">
-                    <input id="crmCurrencyUsd" name="currencyUsd" type="checkbox" value="USD" /> Use
-                    USD for this deal
-                  </label>
-                </div>
-                <div className="field">
-                  <label htmlFor="crmPaymentTerm">Payment terms</label>
-                  <select id="crmPaymentTerm" name="paymentTerm">
-                    {paymentTerms.map((term) => (
-                      <option value={term.value} key={term.value}>
-                        {term.label}
-                      </option>
-                    ))}
+                  <label htmlFor="crmStatus">Status</label>
+                  <select id="crmStatus" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as "Pipeline" | "Confirmed" })}>
+                    <option value="Pipeline">Pipeline</option>
+                    <option value="Confirmed">Confirmed</option>
                   </select>
                 </div>
                 <div className="field">
-                  <label htmlFor="crmCustomDays">Own time in days</label>
-                  <input
-                    id="crmCustomDays"
-                    name="customPaymentDays"
-                    type="number"
-                    min="0"
-                    step="1"
-                    placeholder="Only if custom"
-                  />
-                </div>
-                <div className="field">
-                  <label htmlFor="crmCompany">Company name</label>
-                  <input
-                    id="crmCompany"
-                    name="company"
-                    list="crm-brand-options"
-                    required
-                    placeholder="Brand or agency"
-                  />
-                  <datalist id="crm-brand-options"></datalist>
+                  <label htmlFor="crmAmount">Deal amount</label>
+                  <input id="crmAmount" type="number" min="0" step="0.01" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} placeholder="0.00" />
                 </div>
                 <div className="field">
                   <label htmlFor="crmCampaign">Campaign name</label>
-                  <input id="crmCampaign" name="campaignName" placeholder="Campaign name" />
+                  <input id="crmCampaign" value={form.campaignName} onChange={(e) => setForm({ ...form, campaignName: e.target.value })} placeholder="Campaign name" />
                 </div>
-                <div className="field">
-                  <label htmlFor="crmEmail">Email addresses</label>
-                  <input
-                    id="crmEmail"
-                    name="emailContact"
-                    type="text"
-                    placeholder="name@company.com, finance@company.com"
-                  />
-                </div>
-                <div className="field">
-                  <label htmlFor="crmBillingAddress">Company address</label>
-                  <input
-                    id="crmBillingAddress"
-                    name="billingAddress"
-                    placeholder="Company address for invoice"
-                  />
-                </div>
-                <div className="notice soft-note wide" hidden>
-                  * Brand details have been filled from the brand database. Please check email,
-                  address, and payment terms before saving.
-                </div>
-                <div className="field">
-                  <label htmlFor="crmInvoiceReference">PO number</label>
-                  <input id="crmInvoiceReference" name="invoiceReference" placeholder="PO number" />
-                </div>
-                <div className="field checkbox-field">
-                  <label htmlFor="crmNoPoNumber">No PO number</label>
-                  <label className="toggle-line">
-                    <input id="crmNoPoNumber" name="noPoNumber" type="checkbox" /> No PO for this
-                    deal
-                  </label>
-                </div>
-                <div className="field">
-                  <label htmlFor="crmAccountCode">Xero account code</label>
-                  <input id="crmAccountCode" name="xeroAccountCode" defaultValue="200" />
-                </div>
-                <div className="field">
-                  <label htmlFor="crmTaxRate">Xero tax rate</label>
-                  <select id="crmTaxRate" name="xeroTaxRate">
-                    <option>No VAT</option>
-                    <option>20% VAT on Income</option>
-                    <option>Zero Rated Income</option>
-                  </select>
-                </div>
-                <div className="field">
-                  <label htmlFor="crmContract">Contract</label>
-                  <input id="crmContract" name="contract" type="file" />
-                </div>
-                <button className="primary wide" type="submit">
-                  Add CRM deal
+                <button className="primary wide" type="submit" disabled={creating}>
+                  {creating ? "Adding…" : "Add CRM deal"}
                 </button>
               </form>
             </div>

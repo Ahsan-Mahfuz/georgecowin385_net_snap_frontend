@@ -1,15 +1,18 @@
 "use client";
 
 import { useState } from "react";
+import { useSelector } from "react-redux";
+import { RootState } from "@/redux/store";
 import { months, money, sum, stageClass } from "@/lib/format";
 import {
-  collectiveSalesUsers,
   collectiveStages,
   paymentTerms,
-  defaultCollectiveDeals,
   type CollectiveDeal,
   type Profile,
 } from "@/lib/mock";
+import { useCollectiveTeam } from "@/hooks/useCollectiveTeam";
+import { useGetCollectiveDealsQuery } from "@/redux/api/collectiveDealApi";
+import { toCollectiveDeal } from "@/lib/adapters";
 
 function currencyInput(value: number): string {
   return new Intl.NumberFormat("en-GB", {
@@ -17,10 +20,6 @@ function currencyInput(value: number): string {
     currency: "GBP",
     maximumFractionDigits: 2,
   }).format(Number(value || 0));
-}
-
-function collectiveUserName(id: string): string {
-  return collectiveSalesUsers.find((user) => user.id === id)?.name || "Unassigned";
 }
 
 function collectiveDealTotal(deal: CollectiveDeal): number {
@@ -37,15 +36,26 @@ function collectivePaymentLabel(deal: CollectiveDeal): string {
 }
 
 export default function CollectiveCrmView() {
-  // Static UI: default to the Collective admin so every sample deal is visible.
-  const collectiveUser: Profile = collectiveSalesUsers[0];
+  const sessionUser = useSelector((s: RootState) => s.session.collectiveUser);
+  const { users: collectiveSalesUsers } = useCollectiveTeam();
+  const { data: dealData = [] } = useGetCollectiveDealsQuery();
+
+  // Fall back to the first sales user only until the session hydrates.
+  const collectiveUser: Profile = sessionUser || collectiveSalesUsers[0] || {
+    id: "",
+    name: "",
+    role: "manager",
+    email: "",
+  };
+  const collectiveUserName = (id: string): string =>
+    collectiveSalesUsers.find((user) => user.id === id)?.name || "Unassigned";
 
   const [ownerFilter, setOwnerFilter] = useState<string>("all");
   const [stageFilter, setStageFilter] = useState<string>("all");
   const [addOpen, setAddOpen] = useState<boolean>(false);
   const [selectedDealId, setSelectedDealId] = useState<string | null>(null);
 
-  const allCollectiveDeals: CollectiveDeal[] = defaultCollectiveDeals;
+  const allCollectiveDeals: CollectiveDeal[] = dealData.map(toCollectiveDeal);
 
   const visibleDeals =
     collectiveUser.role === "admin"

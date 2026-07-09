@@ -2,33 +2,45 @@
 
 import React, { useState } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useDispatch } from "react-redux";
 import { loginCreators, resetPortal } from "@/redux/features/session/sessionSlice";
-import { users, roleLabel, Profile } from "@/lib/mock";
 import { creatorViewsByRole } from "@/config/navigation";
+import { useLoginMutation } from "@/redux/api/authApi";
 
-// Login order mirrors loginUsers() in the prototype: admin, finance, operations, production, managers.
-const loginUsers: Profile[] = [
-  ...users.filter((u) => u.role === "admin"),
-  ...users.filter((u) => u.role === "finance"),
-  ...users.filter((u) => u.role === "operations"),
-  ...users.filter((u) => u.role === "production"),
-  ...users.filter((u) => u.role === "manager"),
+// A few seeded demo logins so the app is usable out of the box.
+const demoAccounts = [
+  { name: "Admin", email: "admin@cowshed.test" },
+  { name: "Finance", email: "finance@cowshed.test" },
+  { name: "Amelia (Manager)", email: "amelia@cowshed.test" },
+  { name: "Production", email: "production@cowshed.test" },
 ];
+const DEMO_PASSWORD = "cowshed";
 
 export default function CreatorsLoginPage() {
   const router = useRouter();
   const dispatch = useDispatch();
-  const [profileId, setProfileId] = useState(loginUsers[0].id);
+  const [login, { isLoading }] = useLoginMutation();
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const [email, setEmail] = useState("admin@cowshed.test");
+  const [password, setPassword] = useState(DEMO_PASSWORD);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const profile = loginUsers.find((u) => u.id === profileId);
-    if (!profile) return;
-    dispatch(loginCreators(profile));
-    const firstView = creatorViewsByRole[profile.role][0]?.id || "pl-live";
-    router.push(`/creators/${firstView}`);
+    setError(null);
+    try {
+      const { token, user } = await login({ email, password, portal: "creators" }).unwrap();
+      dispatch(loginCreators({ user, token }));
+      const firstView = creatorViewsByRole[user.role]?.[0]?.id || "pl-live";
+      router.push(`/creators/${firstView}`);
+    } catch (err) {
+      const message =
+        (err as { data?: { message?: string } })?.data?.message ||
+        "Could not sign in. Is the backend running?";
+      setError(message);
+    }
   };
 
   return (
@@ -36,29 +48,75 @@ export default function CreatorsLoginPage() {
       <section className="login-panel">
         <div className="login-intro">
           <div>
-            <p className="eyebrow">MVP prototype</p>
+            <p className="eyebrow">Creator Portal</p>
             <Image className="login-logo" src="/cowshed-creators-logo.png" alt="Cowshed Creators" width={360} height={120} priority />
-            <h1>Creator Portal</h1>
+            <h1>Sign in</h1>
             <p>Role-based workspace for live P&amp;L, pipeline, overheads, manager rosters, and deal submissions.</p>
           </div>
-          <div className="notice">Prototype login: choose admin, operations, finance, or a manager profile to test each workspace view.</div>
+          <div className="login-demo">
+            <p className="eyebrow">Demo accounts</p>
+            <span>Password for all: <code>{DEMO_PASSWORD}</code></span>
+            <ul>
+              {demoAccounts.map((a) => (
+                <li key={a.email}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEmail(a.email);
+                      setPassword(DEMO_PASSWORD);
+                      setError(null);
+                    }}
+                  >
+                    {a.name} — {a.email}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
         </div>
         <form className="login-form" onSubmit={handleSubmit}>
           <div>
-            <p className="eyebrow">Sign in</p>
-            <h2>Choose workspace access</h2>
+            <p className="eyebrow">Welcome back</p>
+            <h2>Sign in to your workspace</h2>
+          </div>
+
+          {error ? <div className="auth-error" role="alert">{error}</div> : null}
+
+          <div className="field">
+            <label htmlFor="email">Email</label>
+            <input
+              id="email"
+              name="email"
+              type="email"
+              autoComplete="email"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@cowshed.test"
+            />
           </div>
           <div className="field">
-            <label htmlFor="profile">Profile</label>
-            <select id="profile" name="profile" value={profileId} onChange={(e) => setProfileId(e.target.value)}>
-              {loginUsers.map((user) => (
-                <option key={user.id} value={user.id}>
-                  {user.name} - {roleLabel(user.role)}
-                </option>
-              ))}
-            </select>
+            <label htmlFor="password">Password</label>
+            <input
+              id="password"
+              name="password"
+              type="password"
+              autoComplete="current-password"
+              required
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Your password"
+            />
           </div>
-          <button className="primary" type="submit">Continue</button>
+
+          <button className="primary" type="submit" disabled={isLoading}>
+            {isLoading ? "Signing in…" : "Sign in"}
+          </button>
+
+          <p className="auth-alt">
+            New here? <Link href="/creators/signup">Create an account</Link>
+          </p>
+
           <button
             className="secondary"
             type="button"

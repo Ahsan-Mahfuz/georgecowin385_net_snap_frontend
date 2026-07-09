@@ -2,13 +2,12 @@
 
 import { useMemo, useState } from "react";
 import { money } from "@/lib/format";
-import {
-  managers,
-  productionItems,
-  defaultProductionRates,
-  talentOptions,
-  type Profile,
-} from "@/lib/mock";
+import { productionItems, type Profile } from "@/lib/mock";
+import { useCreatorsTeam } from "@/hooks/useCreatorsTeam";
+import { useGetTalentsQuery } from "@/redux/api/talentApi";
+import { useGetSettingsQuery } from "@/redux/api/settingsApi";
+import { talentNamesForManager } from "@/lib/adapters";
+import type { ApiTalent } from "@/redux/api/types";
 
 // GBP currency string used inside the rates inputs (mirrors currencyInput() in the prototype).
 function currencyInput(value: number): string {
@@ -38,12 +37,13 @@ export default function ProductionRequestsView() {
   const role = "admin" as Profile["role"];
   const canRequest = ["admin", "manager"].includes(role);
   const canManageRates = ["admin", "operations", "production"].includes(role);
-  const rates = defaultProductionRates;
+  const { managers: requestManagers } = useCreatorsTeam();
+  const { data: talentData = [] } = useGetTalentsQuery();
+  const { data: settings } = useGetSettingsQuery();
+  const rates: Record<string, number> = settings?.productionRates || {};
 
   const [activeTab, setActiveTab] = useState<ProductionTab>("requests");
 
-  // Admin/operations/finance see every talent manager as a request target.
-  const requestManagers = managers;
   const [selectedManagerId, setSelectedManagerId] = useState<string>(requestManagers[0]?.id ?? "");
   const activeManagerId = requestManagers.some((manager) => manager.id === selectedManagerId)
     ? selectedManagerId
@@ -161,7 +161,7 @@ export default function ProductionRequestsView() {
                       placeholder="Add or choose talent"
                     />
                     <datalist id="production-talent-options">
-                      {talentOptions(activeManagerId).map((talentName) => (
+                      {talentNamesForManager(talentData as ApiTalent[], activeManagerId).map((talentName) => (
                         <option value={talentName} key={talentName}></option>
                       ))}
                     </datalist>

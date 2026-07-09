@@ -8,12 +8,15 @@ import { useDispatch, useSelector } from "react-redux";
 import { RootState } from "@/redux/store";
 import { logoutCreators, resetPortal } from "@/redux/features/session/sessionSlice";
 import { creatorViewsByRole } from "@/config/navigation";
-import { roleLabel, defaultEmailLeads } from "@/lib/mock";
+import { roleLabel, type EmailLead } from "@/lib/mock";
 import { money, months, currentMonthIndex } from "@/lib/format";
 import { dealRevenue } from "@/lib/pl";
+import { useGetEmailLeadsQuery } from "@/redux/api/emailLeadApi";
+import { useGetDealsQuery } from "@/redux/api/dealApi";
+import { useGetSettingsQuery } from "@/redux/api/settingsApi";
+import { toEmailLead, toDeal } from "@/lib/adapters";
 
-function actionCountForView(viewId: string, managerId: string | null): number {
-  const leads = defaultEmailLeads.filter((l) => !managerId || l.managerId === managerId);
+function actionCountForView(viewId: string, leads: EmailLead[]): number {
   if (viewId === "email-leads") return leads.filter((l) => l.category === "Deal").length;
   if (viewId === "pr-requests") return leads.filter((l) => l.category === "PR").length;
   if (viewId === "events") return leads.filter((l) => l.category === "Event").length;
@@ -47,12 +50,22 @@ export function CreatorsShell({ children }: { children: React.ReactNode }) {
   const activeView = pathname.split("/").filter(Boolean)[1] || views[0]?.id;
   const managerId = user?.role === "manager" ? user.id : null;
 
+  const { data: leadData = [] } = useGetEmailLeadsQuery(managerId ? { manager: managerId } : undefined);
+  const { data: dealData = [] } = useGetDealsQuery();
+  const { data: settings } = useGetSettingsQuery();
+
+  const leads = useMemo(() => leadData.map(toEmailLead), [leadData]);
+  const deals = useMemo(() => dealData.map(toDeal), [dealData]);
+
   const monthIndex = currentMonthIndex();
-  const target = Number(defaultTarget(monthIndex));
-  const confirmed = useMemo(() => Number(dealRevenue("live")[monthIndex] || 0), [monthIndex]);
+  const target = Number(settings?.targets?.[monthIndex] || 0);
+  const confirmed = useMemo(
+    () => Number(dealRevenue(deals, "live")[monthIndex] || 0),
+    [deals, monthIndex],
+  );
   const targetMet = confirmed >= target;
 
-  const totalActions = views.reduce((total, v) => total + actionCountForView(v.id, managerId), 0);
+  const totalActions = views.reduce((total, v) => total + actionCountForView(v.id, leads), 0);
 
   if (!hydrated || !user) return null;
 
@@ -100,7 +113,7 @@ export function CreatorsShell({ children }: { children: React.ReactNode }) {
         </div>
         <nav className="nav">
           {views.map((view) => {
-            const count = actionCountForView(view.id, managerId);
+            const count = actionCountForView(view.id, leads);
             return (
               <Link
                 key={view.id}
@@ -143,9 +156,4 @@ export function CreatorsShell({ children }: { children: React.ReactNode }) {
       <main className="main">{children}</main>
     </div>
   );
-}
-
-function defaultTarget(monthIndex: number): number {
-  const targets = [75000, 79000, 91000, 109650, 135347.5, 143399.625, 174159.5688, 188033.5041, 207185.1793, 216794.4382, 216884.1601, 237478.3681];
-  return targets[monthIndex] || 0;
 }

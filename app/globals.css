@@ -2758,3 +2758,182 @@ body.drawer-open {
     grid-column: auto;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Auth: real login / signup, approval status, demo hints
+   Added for the functional auth flow (signup -> pending -> admin approval -> login).
+--------------------------------------------------------------------------- */
+
+.auth-error {
+  border: 1px solid var(--rose);
+  background: var(--rose-soft);
+  color: var(--rose);
+  border-radius: 8px;
+  padding: 12px 14px;
+  font-size: 14px;
+  line-height: 1.45;
+  font-weight: 600;
+}
+
+.auth-success {
+  border: 1px solid var(--green);
+  background: var(--green-soft);
+  color: var(--ink);
+  border-radius: 8px;
+  padding: 16px 18px;
+  display: grid;
+  gap: 8px;
+}
+
+.auth-success strong {
+  color: var(--green);
+  font-size: 16px;
+}
+
+.auth-success p {
+  margin: 0;
+  color: var(--ink);
+  line-height: 1.5;
+}
+
+.auth-alt {
+  margin: 0;
+  font-size: 14px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.auth-alt a {
+  color: var(--green);
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.auth-alt a:hover {
+  text-decoration: underline;
+}
+
+/* Link styled as a primary button (used on the signup success screen). */
+.primary.as-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  text-align: center;
+}
+
+/* Demo-account helper block on the dark login intro panel. */
+.login-demo {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.collective-login-intro .login-demo {
+  background: rgba(31, 107, 82, 0.06);
+  border-color: var(--line);
+}
+
+.login-demo > span {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.collective-login-intro .login-demo > span {
+  color: var(--muted);
+}
+
+.login-demo code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: rgba(255, 255, 255, 0.14);
+  padding: 1px 6px;
+  border-radius: 4px;
+  color: #fff;
+}
+
+.collective-login-intro .login-demo code {
+  background: var(--green-soft);
+  color: var(--green);
+}
+
+.login-demo ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.login-demo li button {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 6px 8px;
+  color: rgba(255, 255, 255, 0.86);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease;
+}
+
+.collective-login-intro .login-demo li button {
+  color: var(--ink);
+}
+
+.login-demo li button:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.collective-login-intro .login-demo li button:hover {
+  background: #fff;
+  border-color: var(--line);
+}
+
+/* Status pills for account state in the Team directory. */
+.status-pill {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: capitalize;
+  border: 1px solid transparent;
+}
+
+.status-active {
+  background: var(--green-soft);
+  color: var(--green);
+  border-color: var(--green);
+}
+
+.status-pending {
+  background: var(--amber-soft);
+  color: var(--amber);
+  border-color: var(--amber);
+}
+
+.status-disabled {
+  background: var(--rose-soft);
+  color: var(--rose);
+  border-color: var(--rose);
+}
+
+/* Inline action buttons inside table rows. */
+.row-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+button.small,
+.primary.small,
+.secondary.small {
+  height: auto;
+  padding: 6px 12px;
+  font-size: 13px;
+}

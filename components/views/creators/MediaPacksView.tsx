@@ -1,14 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { managers, defaultTalents, users } from "@/lib/mock";
-
-// --- prototype helpers reproduced (UI-only, static) ---
-
-function managerName(id: string): string {
-  if (id === "admin") return "Admin";
-  return users.find((user) => user.id === id)?.name || "Unassigned";
-}
+import { useCreatorsTeam } from "@/hooks/useCreatorsTeam";
+import { useGetTalentsQuery } from "@/redux/api/talentApi";
+import { refId } from "@/lib/adapters";
 
 function talentKey(managerId: string, talentName: string): string {
   return `${managerId}::${talentName}`;
@@ -41,26 +36,27 @@ interface RosterRow {
   talentName: string;
 }
 
-// On first load talentProfiles is empty, so every talent uses the default
-// profile: no bio, no enabled social platforms.
-function allRosterTalentRows(): RosterRow[] {
-  return managers
-    .flatMap((manager) =>
-      (defaultTalents[manager.id] || []).map((talentName) => ({
-        key: talentKey(manager.id, talentName),
-        managerId: manager.id,
-        talentName,
-      }))
-    )
-    .sort(
-      (a, b) =>
-        a.talentName.localeCompare(b.talentName) ||
-        managerName(a.managerId).localeCompare(managerName(b.managerId))
-    );
-}
-
 export default function MediaPacksView() {
-  const rows = useMemo(() => allRosterTalentRows(), []);
+  const { users } = useCreatorsTeam();
+  const { data: talentData = [] } = useGetTalentsQuery();
+  const managerName = (id: string) => users.find((u) => u.id === id)?.name || "Unassigned";
+
+  const rows = useMemo<RosterRow[]>(
+    () =>
+      talentData
+        .map((t) => {
+          const managerId = refId(t.manager);
+          return { key: talentKey(managerId, t.name), managerId, talentName: t.name };
+        })
+        .sort(
+          (a, b) =>
+            a.talentName.localeCompare(b.talentName) ||
+            (users.find((u) => u.id === a.managerId)?.name || "").localeCompare(
+              users.find((u) => u.id === b.managerId)?.name || "",
+            ),
+        ),
+    [talentData, users],
+  );
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
 
   const toggleKey = (key: string) => {

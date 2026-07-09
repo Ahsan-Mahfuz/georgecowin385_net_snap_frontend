@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { money, currencyMoney, usdToGbpRate } from "@/lib/format";
-import { users } from "@/lib/mock";
 
 // ---- Local static types (UI-only) --------------------------------------
 interface CrmDeal {
@@ -41,8 +40,9 @@ const talentExpenses: TalentExpense[] = [];
 
 // ---- Helpers (ported verbatim from prototype) ---------------------------
 function managerName(id: string): string {
+  // Job-invoice talent expenses are empty until CRM deals carry them; passthrough.
   if (id === "admin") return "Admin";
-  return users.find((user) => user.id === id)?.name || "Unassigned";
+  return id || "Unassigned";
 }
 
 function talentKey(managerId: string, talentName: string): string {

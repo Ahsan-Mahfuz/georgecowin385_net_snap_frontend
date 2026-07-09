@@ -2,22 +2,42 @@
 
 import React, { useState } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useDispatch } from "react-redux";
 import { loginCollective, resetPortal } from "@/redux/features/session/sessionSlice";
-import { collectiveSalesUsers } from "@/lib/mock";
+import { useLoginMutation } from "@/redux/api/authApi";
+
+const demoAccounts = [
+  { name: "Collective Admin", email: "admin@cowshedcollective.test" },
+  { name: "George (Sales)", email: "george@cowshedcollective.test" },
+  { name: "Mia (Sales)", email: "mia@cowshedcollective.test" },
+  { name: "James (Sales)", email: "james@cowshedcollective.test" },
+];
+const DEMO_PASSWORD = "cowshed";
 
 export default function CollectiveLoginPage() {
   const router = useRouter();
   const dispatch = useDispatch();
-  const [profileId, setProfileId] = useState(collectiveSalesUsers[0].id);
+  const [login, { isLoading }] = useLoginMutation();
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const [email, setEmail] = useState("admin@cowshedcollective.test");
+  const [password, setPassword] = useState(DEMO_PASSWORD);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const profile = collectiveSalesUsers.find((u) => u.id === profileId);
-    if (!profile) return;
-    dispatch(loginCollective(profile));
-    router.push("/collective/collective-crm");
+    setError(null);
+    try {
+      const { token, user } = await login({ email, password, portal: "collective" }).unwrap();
+      dispatch(loginCollective({ user, token }));
+      router.push("/collective/collective-crm");
+    } catch (err) {
+      const message =
+        (err as { data?: { message?: string } })?.data?.message ||
+        "Could not sign in. Is the backend running?";
+      setError(message);
+    }
   };
 
   return (
@@ -30,24 +50,70 @@ export default function CollectiveLoginPage() {
             <h1>Sales CRM</h1>
             <p>A separate sales workspace with its own CRM, payment schedule and simulated Collective Xero status.</p>
           </div>
-          <div className="notice">Prototype login: choose a Collective sales profile to test the separate business workspace.</div>
+          <div className="login-demo">
+            <p className="eyebrow">Demo accounts</p>
+            <span>Password for all: <code>{DEMO_PASSWORD}</code></span>
+            <ul>
+              {demoAccounts.map((a) => (
+                <li key={a.email}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEmail(a.email);
+                      setPassword(DEMO_PASSWORD);
+                      setError(null);
+                    }}
+                  >
+                    {a.name} — {a.email}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
         </div>
         <form className="login-form" onSubmit={handleSubmit}>
           <div>
-            <p className="eyebrow">Sign in</p>
-            <h2>Choose sales access</h2>
+            <p className="eyebrow">Welcome back</p>
+            <h2>Sign in to Sales CRM</h2>
+          </div>
+
+          {error ? <div className="auth-error" role="alert">{error}</div> : null}
+
+          <div className="field">
+            <label htmlFor="email">Email</label>
+            <input
+              id="email"
+              name="email"
+              type="email"
+              autoComplete="email"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@cowshedcollective.test"
+            />
           </div>
           <div className="field">
-            <label htmlFor="collectiveProfile">Profile</label>
-            <select id="collectiveProfile" name="profile" value={profileId} onChange={(e) => setProfileId(e.target.value)}>
-              {collectiveSalesUsers.map((user) => (
-                <option key={user.id} value={user.id}>
-                  {user.name} - {user.role === "admin" ? "Admin" : "Sales"}
-                </option>
-              ))}
-            </select>
+            <label htmlFor="password">Password</label>
+            <input
+              id="password"
+              name="password"
+              type="password"
+              autoComplete="current-password"
+              required
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Your password"
+            />
           </div>
-          <button className="primary" type="submit">Continue</button>
+
+          <button className="primary" type="submit" disabled={isLoading}>
+            {isLoading ? "Signing in…" : "Sign in"}
+          </button>
+
+          <p className="auth-alt">
+            New here? <Link href="/collective/signup">Create an account</Link>
+          </p>
+
           <button
             className="secondary"
             type="button"

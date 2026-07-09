@@ -1,7 +1,6 @@
 "use client";
 
 import { months, money, sum } from "@/lib/format";
-import { managers, users } from "@/lib/mock";
 
 // Static UI rebuild of the prototype `approvalsView`.
 // On first load every approval collection is empty, so the view renders as
@@ -45,9 +44,9 @@ interface RejectionMessage {
 }
 
 function managerName(id: string): string {
-  const person =
-    managers.find((m) => m.id === id) || users.find((u) => u.id === id);
-  return person ? person.name : id;
+  // Approval collections are empty until wired to live data; passthrough keeps
+  // the (unrendered) cards compiling.
+  return id;
 }
 
 function PendingDealCard({

@@ -8,8 +8,9 @@ import { useDispatch, useSelector } from "react-redux";
 import { RootState } from "@/redux/store";
 import { logoutCollective, resetPortal } from "@/redux/features/session/sessionSlice";
 import { collectiveViews } from "@/config/navigation";
-import { defaultCollectiveDeals } from "@/lib/mock";
 import { money, sum } from "@/lib/format";
+import { useGetCollectiveDealsQuery } from "@/redux/api/collectiveDealApi";
+import { toCollectiveDeal } from "@/lib/adapters";
 
 export function CollectiveShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -34,10 +35,12 @@ export function CollectiveShell({ children }: { children: React.ReactNode }) {
 
   const activeView = pathname.split("/").filter(Boolean)[1] || collectiveViews[0]?.id;
 
+  const { data: dealData = [] } = useGetCollectiveDealsQuery();
+  const allDeals = dealData.map(toCollectiveDeal);
   const visibleDeals = user
     ? user.role === "admin"
-      ? defaultCollectiveDeals
-      : defaultCollectiveDeals.filter((d) => d.ownerId === user.id)
+      ? allDeals
+      : allDeals.filter((d) => d.ownerId === user.id)
     : [];
   const totalPipeline = visibleDeals.reduce((total, d) => total + Number(d.amount || sum(d.monthValues || [])), 0);
 

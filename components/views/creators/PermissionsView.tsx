@@ -1,20 +1,57 @@
 "use client";
 
-import { managers, roleLabel, type Profile } from "@/lib/mock";
+import { useState } from "react";
+import { useSelector } from "react-redux";
+import { RootState } from "@/redux/store";
+import {
+  useGetUsersQuery,
+  useApproveUserMutation,
+  useRejectUserMutation,
+  useSetUserStatusMutation,
+  useSetUserRoleMutation,
+} from "@/redux/api/userApi";
+import { roleLabel, type Profile, type Role } from "@/lib/mock";
 
-// UI-only rebuild of the prototype permissionsView (app.js ~line 3143) and its
-// three sub-panels: teamAccessAdminView, requestDelegationAdminView, approvalRoutesAdminView.
-// Static data: line reports, request delegation permissions and approval routes all
-// default to empty on first load, so every table renders its prototype empty state.
-// Current user is Admin, so canAdminister is true (admin + operations can administer).
+const assignableRoles: Role[] = ["admin", "finance", "operations", "production", "manager"];
 
-const managerUsers: Profile[] = managers;
-const operationsUsers: Profile[] = [];
+function statusPillClass(status: string): string {
+  if (status === "active") return "status-pill status-active";
+  if (status === "pending") return "status-pill status-pending";
+  return "status-pill status-disabled";
+}
+
+// Permissions screen. The top two sections (New user requests, Team directory) are
+// fully functional against the account directory in redux — approving a signup here
+// is what lets that person actually log in. The lower three sections
+// (teamAccessAdminView, requestDelegationAdminView, approvalRoutesAdminView) remain
+// prototype placeholders that default to empty on first load.
 
 export default function PermissionsView() {
-  const teamMembers: Profile[] = [...managerUsers, ...operationsUsers];
-  const approvers: Profile[] = [...managerUsers, ...operationsUsers];
-  const canAdminister = true;
+  const currentUser = useSelector((s: RootState) => s.session.user);
+
+  // Only admin / operations may administer access & approvals.
+  const canAdminister = currentUser?.role === "admin" || currentUser?.role === "operations";
+
+  // Live account directory from the backend (Creators portal only).
+  const { data: creatorAccounts = [], isLoading } = useGetUsersQuery({ portal: "creators" });
+  const [approveUser] = useApproveUserMutation();
+  const [rejectUser] = useRejectUserMutation();
+  const [setUserStatus] = useSetUserStatusMutation();
+  const [setUserRole] = useSetUserRoleMutation();
+
+  const pendingAccounts = creatorAccounts.filter((a) => a.status === "pending");
+  const activeAndDisabled = creatorAccounts.filter((a) => a.status !== "pending");
+
+  // Per-row role choice for pending approvals (defaults to the requested role).
+  const [roleChoice, setRoleChoice] = useState<Record<string, Role>>({});
+  const roleFor = (id: string, fallback: Role): Role => roleChoice[id] ?? fallback;
+
+  // Live managers (for the lower routing/delegation placeholder sections).
+  const managerUsers: Profile[] = activeAndDisabled
+    .filter((a) => a.role === "manager" && a.status === "active")
+    .map((a) => ({ id: a.id, name: a.name, role: a.role, email: a.email }));
+  const teamMembers: Profile[] = managerUsers;
+  const approvers: Profile[] = managerUsers;
 
   // Derived rows — all empty on first load.
   const lineReportRows: { lineManagerId: string; reportManagerId: string }[] = [];
@@ -35,6 +72,170 @@ export default function PermissionsView() {
         </div>
         <div className="asof">Team access and approval routing controls</div>
       </div>
+
+      {/* New user requests — approve or reject signups */}
+      <section className="section soft-section">
+        <div className="section-head">
+          <h2>New user requests</h2>
+          <span className="pill admin">{pendingAccounts.length} pending</span>
+        </div>
+        <div className="section-body">
+          <div className="notice">
+            People who sign up start as <b>pending</b> and cannot log in until approved here. Set their role,
+            then approve — or reject to remove the request.
+          </div>
+        </div>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Email</th>
+                <th>Requested role</th>
+                <th>Assign role</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {pendingAccounts.length ? (
+                pendingAccounts.map((account) => (
+                  <tr key={account.id}>
+                    <td>{account.name}</td>
+                    <td>{account.email}</td>
+                    <td>{roleLabel(account.role)}</td>
+                    <td>
+                      <select
+                        className="compact-select"
+                        value={roleFor(account.id, account.role)}
+                        disabled={!canAdminister}
+                        onChange={(e) =>
+                          setRoleChoice((prev) => ({ ...prev, [account.id]: e.target.value as Role }))
+                        }
+                      >
+                        {assignableRoles.map((r) => (
+                          <option key={r} value={r}>
+                            {roleLabel(r)}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                    <td>
+                      {canAdminister ? (
+                        <div className="row-actions">
+                          <button
+                            className="primary small"
+                            type="button"
+                            onClick={() =>
+                              approveUser({ id: account.id, role: roleFor(account.id, account.role) })
+                            }
+                          >
+                            Approve
+                          </button>
+                          <button
+                            className="secondary danger-button small"
+                            type="button"
+                            onClick={() => rejectUser(account.id)}
+                          >
+                            Reject
+                          </button>
+                        </div>
+                      ) : (
+                        "View only"
+                      )}
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={5}>
+                    {isLoading ? "Loading…" : "No pending requests. New sign-ups will appear here."}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      {/* Team directory — all approved accounts */}
+      <section className="section soft-section">
+        <div className="section-head">
+          <h2>Team directory</h2>
+          <span className="pill">{activeAndDisabled.length} accounts</span>
+        </div>
+        <div className="section-body">
+          <div className="notice">
+            Everyone with a Creators account. Change a role, or disable someone to block sign-in without deleting
+            their account.
+          </div>
+        </div>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Email</th>
+                <th>Role</th>
+                <th>Status</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {activeAndDisabled.map((account) => {
+                const isSelf = account.id === currentUser?.id;
+                return (
+                  <tr key={account.id}>
+                    <td>{account.name}</td>
+                    <td>{account.email}</td>
+                    <td>
+                      <select
+                        className="compact-select"
+                        value={account.role}
+                        disabled={!canAdminister || isSelf}
+                        onChange={(e) =>
+                          setUserRole({ id: account.id, role: e.target.value as Role })
+                        }
+                      >
+                        {assignableRoles.map((r) => (
+                          <option key={r} value={r}>
+                            {roleLabel(r)}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                    <td>
+                      <span className={statusPillClass(account.status)}>{account.status}</span>
+                    </td>
+                    <td>
+                      {canAdminister && !isSelf ? (
+                        account.status === "active" ? (
+                          <button
+                            className="secondary danger-button small"
+                            type="button"
+                            onClick={() => setUserStatus({ id: account.id, status: "disabled" })}
+                          >
+                            Disable
+                          </button>
+                        ) : (
+                          <button
+                            className="primary small"
+                            type="button"
+                            onClick={() => setUserStatus({ id: account.id, status: "active" })}
+                          >
+                            Enable
+                          </button>
+                        )
+                      ) : (
+                        isSelf ? "You" : "View only"
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </section>
 
       {/* Team CRM and report access */}
       <section className="section soft-section">

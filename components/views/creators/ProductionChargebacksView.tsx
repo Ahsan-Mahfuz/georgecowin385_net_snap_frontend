@@ -1,7 +1,6 @@
 "use client";
 
 import { money } from "@/lib/format";
-import { managers } from "@/lib/mock";
 
 // ---------------------------------------------------------------------------
 // Local types + static data. In the prototype these live on `state.productionRequests`,
@@ -37,8 +36,10 @@ const productionRequests: ProductionRequest[] = [];
 // Helpers ported from the prototype (app.js)
 // ---------------------------------------------------------------------------
 function managerName(id: string): string {
+  // Production requests are empty until wired to live data; passthrough keeps the
+  // (unrendered) cards compiling.
   if (id === "admin") return "Admin";
-  return managers.find((manager) => manager.id === id)?.name || "Unassigned";
+  return id || "Unassigned";
 }
 
 function displayDate(value?: string): string {
