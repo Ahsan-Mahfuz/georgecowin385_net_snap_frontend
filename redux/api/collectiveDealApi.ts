@@ -23,6 +23,18 @@ export const collectiveDealApi = baseApi.injectEndpoints({
       query: (id) => ({ url: `/collective-deal/${id}`, method: "DELETE" }),
       invalidatesTags: ["CollectiveDeal"],
     }),
+    createCollectiveInvoice: builder.mutation<ApiCollectiveDeal, string>({
+      query: (id) => ({ url: `/collective-deal/${id}/xero-invoice`, method: "POST" }),
+      invalidatesTags: ["CollectiveDeal"],
+    }),
+    markCollectiveInvoiced: builder.mutation<ApiCollectiveDeal, string>({
+      query: (id) => ({ url: `/collective-deal/${id}/mark-invoiced`, method: "POST" }),
+      invalidatesTags: ["CollectiveDeal"],
+    }),
+    markCollectivePaid: builder.mutation<ApiCollectiveDeal, string>({
+      query: (id) => ({ url: `/collective-deal/${id}/mark-paid`, method: "POST" }),
+      invalidatesTags: ["CollectiveDeal"],
+    }),
   }),
 });
 
@@ -31,4 +43,7 @@ export const {
   useCreateCollectiveDealMutation,
   useUpdateCollectiveDealMutation,
   useDeleteCollectiveDealMutation,
+  useCreateCollectiveInvoiceMutation,
+  useMarkCollectiveInvoicedMutation,
+  useMarkCollectivePaidMutation,
 } = collectiveDealApi;

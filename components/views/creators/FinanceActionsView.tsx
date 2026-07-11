@@ -1,200 +1,33 @@
 "use client";
 
-import { money } from "@/lib/format";
-
-// ---------------------------------------------------------------------------
-// Static data. The prototype builds these two lists from live state
-// (state.talentExpenses and state.crmDeals). Both collections are empty on
-// first load, so this view renders the prototype's empty states verbatim.
-// ---------------------------------------------------------------------------
-
-interface CrmDeal {
-  id: string;
-  talentName: string;
-  company: string;
-  campaignName?: string;
-  managerId: string;
-  stage?: string;
-  financeStatus?: string;
-  xeroInvoiceId?: string;
-  xeroStatus?: string;
-  xeroInvoiceStatus?: string;
-  amount?: number;
-}
-
-interface TalentExpenseAction {
-  id: string;
-  talentName: string;
-  amount: number;
-  crmDealId?: string;
-  campaignName?: string;
-  managerId: string;
-  submittedBy: string;
-  note?: string;
-  receiptData?: string;
-  receiptName?: string;
-}
-
-// Empty on first load (see prototype: state.crmDeals = [], state.talentExpenses = []).
-const talentExpenseActions: TalentExpenseAction[] = [];
-const actionDeals: CrmDeal[] = [];
-
-function managerName(managerId: string): string {
-  // These action lists are empty until wired to live finance data; kept as a
-  // passthrough so the (unrendered) cards still compile.
-  return managerId || "Unassigned";
-}
-
-function dealInvoiceTotal(deal: CrmDeal): number {
-  return Number(deal.amount || 0);
-}
-
-function dealTalentExpenseTotal(_dealId: string): number {
-  return 0;
-}
-
-function crmPaymentLabel(_deal: CrmDeal): string {
-  return "-";
-}
-
-function crmDueDate(_deal: CrmDeal): string {
-  return "-";
-}
-
-function TalentExpenseActionCard({ expense }: { expense: TalentExpenseAction }) {
-  const deal = actionDeals.find((item) => item.id === expense.crmDealId);
-  return (
-    <article className="deal finance-action">
-      <div className="deal-line">
-        <strong>
-          {expense.talentName}
-          {deal?.company ? ` x ${deal.company}` : ""}
-        </strong>
-        <span>{money(expense.amount)}</span>
-      </div>
-      <div className="notice">
-        Manager has added a talent expense. Finance needs to add this amount onto
-        the job invoice.
-      </div>
-      <div className="deal-line muted">
-        <span>Campaign</span>
-        <span>{deal?.campaignName || "No campaign name"}</span>
-      </div>
-      <div className="deal-line muted">
-        <span>Manager</span>
-        <span>{managerName(expense.managerId)}</span>
-      </div>
-      <div className="deal-line muted">
-        <span>Added by</span>
-        <span>{managerName(expense.submittedBy)}</span>
-      </div>
-      <div className="deal-line muted">
-        <span>Note</span>
-        <span>{expense.note || "-"}</span>
-      </div>
-      <div className="deal-line muted">
-        <span>Receipt</span>
-        <span>
-          {expense.receiptData ? (
-            <a href={expense.receiptData} target="_blank" rel="noopener">
-              {expense.receiptName || "Open receipt"}
-            </a>
-          ) : (
-            "No receipt attached"
-          )}
-        </span>
-      </div>
-      <div className="deal-line muted">
-        <span>Current invoice total</span>
-        <span>{deal ? money(dealInvoiceTotal(deal)) : money(expense.amount)}</span>
-      </div>
-      <div className="deal-actions">
-        {deal ? (
-          <button className="secondary" data-finance-create-xero={deal.id}>
-            {deal.xeroInvoiceId
-              ? "Update draft invoice in Xero"
-              : "Create draft invoice in Xero"}
-          </button>
-        ) : null}
-        <button className="primary" data-talent-expense-actioned={expense.id}>
-          Mark added to invoice
-        </button>
-      </div>
-    </article>
-  );
-}
-
-function FinanceActionCard({ deal }: { deal: CrmDeal }) {
-  const isInvoiced =
-    deal.financeStatus === "Invoiced in Xero" || deal.stage === "Invoiced";
-  return (
-    <article className="deal finance-action" data-finance-card={deal.id}>
-      <div className="deal-line">
-        <strong>
-          {deal.talentName} x {deal.company}
-        </strong>
-        <span className={`pill ${isInvoiced ? "confirmed" : "pipeline"}`}>
-          {isInvoiced ? "Invoiced" : "Draft in Xero"}
-        </span>
-      </div>
-      <div className="deal-line muted">
-        <span>Manager</span>
-        <span>{managerName(deal.managerId)}</span>
-      </div>
-      <div className="deal-line muted">
-        <span>Campaign</span>
-        <span>{deal.campaignName || "-"}</span>
-      </div>
-      <div className="deal-line muted">
-        <span>Talent expenses on invoice</span>
-        <span>{money(dealTalentExpenseTotal(deal.id))}</span>
-      </div>
-      <div className="deal-line muted">
-        <span>Invoice total</span>
-        <span>{money(dealInvoiceTotal(deal))}</span>
-      </div>
-      <div className="deal-line muted">
-        <span>Payment terms</span>
-        <span>
-          {crmPaymentLabel(deal)} · due {crmDueDate(deal)}
-        </span>
-      </div>
-      <div className="deal-line muted">
-        <span>Xero invoice</span>
-        <span>{deal.xeroInvoiceId || "-"}</span>
-      </div>
-      <div className="deal-line muted">
-        <span>Xero status</span>
-        <span>{deal.xeroStatus || deal.xeroInvoiceStatus || "-"}</span>
-      </div>
-      <div className={`notice ${isInvoiced ? "success-notice" : ""}`}>
-        {isInvoiced
-          ? "Xero has confirmed this invoice. The CRM deal has moved to Invoiced."
-          : "A draft invoice has been created in Xero. Finance can view it there; no portal approval is needed."}
-      </div>
-      <div className="deal-actions">
-        <button className="primary" data-finance-see-xero={deal.id}>
-          See invoice in Xero
-        </button>
-        {isInvoiced ? (
-          <button className="secondary" data-dismiss-finance-alert={deal.id}>
-            Dismiss
-          </button>
-        ) : null}
-      </div>
-    </article>
-  );
-}
+import { money, sum } from "@/lib/format";
+import { toDeal } from "@/lib/adapters";
+import { useCreatorsTeam } from "@/hooks/useCreatorsTeam";
+import {
+  useGetDealsQuery,
+  useCreateDealInvoiceMutation,
+  useMarkDealInvoicedMutation,
+  useMarkDealPaidMutation,
+} from "@/redux/api/dealApi";
+import { useGetXeroStatusQuery } from "@/redux/api/settingsApi";
 
 export default function FinanceActionsView() {
-  const totalValue = actionDeals.reduce(
-    (total, deal) => total + Number(deal.amount || 0),
-    0
-  );
-  const talentExpenseTotal = talentExpenseActions.reduce(
-    (total, expense) => total + Number(expense.amount || 0),
-    0
-  );
+  const { users } = useCreatorsTeam();
+  const { data: dealData = [], isLoading } = useGetDealsQuery();
+  const { data: xero } = useGetXeroStatusQuery();
+  const [createInvoice] = useCreateDealInvoiceMutation();
+  const [markInvoiced] = useMarkDealInvoicedMutation();
+  const [markPaid] = useMarkDealPaidMutation();
+
+  const managerName = (id: string) => users.find((u) => u.id === id)?.name || "Unassigned";
+  const deals = dealData.map(toDeal);
+
+  // Deals worth invoicing: has scheduled money and isn't fully paid.
+  const toInvoice = deals.filter((d) => sum(d.monthValues) > 0 && !d.xeroInvoiceId && d.financeStatus !== "Paid");
+  const inFlight = deals.filter((d) => d.xeroInvoiceId && d.financeStatus !== "Paid");
+  const paid = deals.filter((d) => d.financeStatus === "Paid");
+
+  const total = (list: typeof deals) => list.reduce((t, d) => t + sum(d.monthValues), 0);
 
   return (
     <>
@@ -203,28 +36,38 @@ export default function FinanceActionsView() {
           <p className="eyebrow">Cowshed Creators Portal</p>
           <h1>Finance Actions</h1>
         </div>
-        <div className="asof">Xero draft and invoice alerts</div>
+        <div className="asof">
+          Xero invoicing · {xero?.connected ? "Connected to Xero" : "Simulated (connect Xero to go live)"}
+        </div>
       </div>
 
       <section className="section">
         <div className="section-head">
-          <h2>Talent expenses to add to invoices</h2>
+          <h2>Ready to invoice</h2>
           <div className="section-actions">
-            <span className="pill pipeline">
-              {talentExpenseActions.length} actions
-            </span>
-            <span className="pill confirmed">{money(talentExpenseTotal)}</span>
+            <span className="pill pipeline">{toInvoice.length} deals</span>
+            <span className="pill confirmed">{money(total(toInvoice))}</span>
           </div>
         </div>
         <div className="section-body manager-list">
-          {talentExpenseActions.length ? (
-            talentExpenseActions.map((expense) => (
-              <TalentExpenseActionCard key={expense.id} expense={expense} />
+          {toInvoice.length ? (
+            toInvoice.map((d) => (
+              <article className="deal finance-action" key={d.id}>
+                <div className="deal-line">
+                  <strong>{d.talentName} {d.company ? `× ${d.company}` : ""}</strong>
+                  <span>{money(sum(d.monthValues))}</span>
+                </div>
+                <div className="deal-line muted"><span>Manager</span><span>{managerName(d.managerId)}</span></div>
+                <div className="deal-line muted"><span>Campaign</span><span>{d.campaignName || "-"}</span></div>
+                <div className="deal-actions">
+                  <button className="primary" type="button" onClick={() => createInvoice(d.id)}>
+                    Create draft invoice in Xero
+                  </button>
+                </div>
+              </article>
             ))
           ) : (
-            <div className="notice">
-              No talent expense invoice updates waiting right now.
-            </div>
+            <div className="notice">{isLoading ? "Loading…" : "No deals ready to invoice right now."}</div>
           )}
         </div>
       </section>
@@ -233,22 +76,57 @@ export default function FinanceActionsView() {
         <div className="section-head">
           <h2>Xero invoice alerts</h2>
           <div className="section-actions">
-            <span className="pill pipeline">{actionDeals.length} actions</span>
-            <span className="pill confirmed">{money(totalValue)}</span>
+            <span className="pill pipeline">{inFlight.length} in progress</span>
+            <span className="pill confirmed">{money(total(inFlight))}</span>
           </div>
         </div>
         <div className="section-body manager-list">
-          {actionDeals.length ? (
-            actionDeals.map((deal) => (
-              <FinanceActionCard key={deal.id} deal={deal} />
-            ))
+          {inFlight.length ? (
+            inFlight.map((d) => {
+              const invoiced = d.financeStatus === "Invoiced in Xero";
+              return (
+                <article className="deal finance-action" key={d.id}>
+                  <div className="deal-line">
+                    <strong>{d.talentName} {d.company ? `× ${d.company}` : ""}</strong>
+                    <span className={`pill ${invoiced ? "confirmed" : "pipeline"}`}>{invoiced ? "Invoiced" : "Draft in Xero"}</span>
+                  </div>
+                  <div className="deal-line muted"><span>Manager</span><span>{managerName(d.managerId)}</span></div>
+                  <div className="deal-line muted"><span>Xero invoice</span><span>{d.xeroInvoiceId || "-"}</span></div>
+                  <div className="deal-line muted"><span>Xero status</span><span>{d.xeroStatus || "-"}</span></div>
+                  <div className="deal-actions">
+                    {!invoiced ? (
+                      <button className="secondary" type="button" onClick={() => markInvoiced(d.id)}>Mark invoiced</button>
+                    ) : null}
+                    <button className="primary" type="button" onClick={() => markPaid(d.id)}>Mark paid / reconciled</button>
+                  </div>
+                </article>
+              );
+            })
           ) : (
-            <div className="notice">
-              No Xero draft or invoice alerts waiting right now.
-            </div>
+            <div className="notice">No Xero drafts or invoices in progress.</div>
           )}
         </div>
       </section>
+
+      {paid.length ? (
+        <section className="section soft-section">
+          <div className="section-head">
+            <h2>Paid</h2>
+            <span className="pill confirmed">{paid.length} · {money(total(paid))}</span>
+          </div>
+          <div className="section-body manager-list">
+            {paid.map((d) => (
+              <article className="deal" key={d.id}>
+                <div className="deal-line">
+                  <strong>{d.talentName} {d.company ? `× ${d.company}` : ""}</strong>
+                  <span className="pill confirmed">Paid</span>
+                </div>
+                <div className="deal-line muted"><span>Xero invoice</span><span>{d.xeroInvoiceId || "-"}</span></div>
+              </article>
+            ))}
+          </div>
+        </section>
+      ) : null}
     </>
   );
 }

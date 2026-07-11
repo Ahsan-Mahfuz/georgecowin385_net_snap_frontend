@@ -2,8 +2,13 @@
 
 import { useState } from "react";
 import { months, money, sum, usdToGbpRate, currencyMoney } from "@/lib/format";
-import { paymentTerms } from "@/lib/mock";
+import { paymentTerms, type Deal } from "@/lib/mock";
 import { useCreatorsTeam } from "@/hooks/useCreatorsTeam";
+import { useGetDealsQuery } from "@/redux/api/dealApi";
+import { toDeal } from "@/lib/adapters";
+
+// Set by the component so the module-level table helper can resolve names.
+let liveUsers: { id: string; name: string }[] = [];
 
 // The CRM deal shape the prototype's cashflow view reads. On first load the
 // prototype's state.crmDeals collection is empty, so the derived tables render
@@ -24,10 +29,27 @@ interface CrmDeal {
   currency?: "GBP" | "USD";
 }
 
-// CRM cashflow deals are empty until deals carry payment terms; passthrough keeps
-// the (unrendered) rows compiling.
 function managerName(id: string): string {
-  return id;
+  if (id === "admin") return "Admin";
+  return liveUsers.find((u) => u.id === id)?.name || "Unassigned";
+}
+
+// Map a live Deal into the CrmDeal shape the cashflow tables expect.
+function dealToCashflow(deal: Deal): CrmDeal {
+  const firstMonth = deal.monthValues.findIndex((v) => Number(v) > 0);
+  return {
+    id: deal.id,
+    managerId: deal.managerId,
+    talentName: deal.talentName,
+    company: deal.company || "",
+    campaignName: deal.campaignName,
+    stage: deal.stage || (deal.status === "Confirmed" ? "Contract Signed" : "Conversation"),
+    paymentTerm: deal.paymentTerm || "30",
+    customPaymentDays: deal.customPaymentDays || 0,
+    signedMonthIndex: deal.signedMonthIndex ?? (firstMonth >= 0 ? firstMonth : 0),
+    amount: sum(deal.monthValues),
+    currency: deal.currency || "GBP",
+  };
 }
 
 function dealGbpAmount(deal: CrmDeal): number {
@@ -127,10 +149,15 @@ export default function CashflowView() {
   const [selectedMonthIndex, setSelectedMonthIndex] = useState<number | null>(null);
 
   // Managers accessible in the cashflow filter.
-  const { managers: accessibleManagers } = useCreatorsTeam();
+  const { managers: accessibleManagers, users } = useCreatorsTeam();
+  liveUsers = users;
 
-  // state.crmDeals is empty on first load — reproduce the empty pipeline.
-  const crmDeals: CrmDeal[] = [];
+  const { data: dealData = [] } = useGetDealsQuery();
+  // Confirmed deals with scheduled money feed the cashflow payment schedule.
+  const crmDeals: CrmDeal[] = dealData
+    .map(toDeal)
+    .filter((d) => sum(d.monthValues) > 0)
+    .map(dealToCashflow);
 
   const deals = crmDeals
     .filter((deal) => selectedManagerId === "all" || deal.managerId === selectedManagerId)

@@ -26,6 +26,8 @@ export const baseApi = createApi({
     "EmailLead",
     "Expense",
     "Settings",
+    "Approval",
+    "ProductionRequest",
     "Me",
   ],
   endpoints: () => ({}),

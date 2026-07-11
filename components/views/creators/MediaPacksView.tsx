@@ -65,6 +65,54 @@ export default function MediaPacksView() {
     );
   };
 
+  // Build a printable media pack for the selected talent and hand it to the
+  // browser's print dialog (which offers "Save as PDF"). Fully client-side —
+  // no external libraries or network calls.
+  const downloadMediaPack = () => {
+    const chosen = rows.filter((row) => selectedKeys.includes(row.key));
+    if (!chosen.length) {
+      if (typeof window !== "undefined") window.alert("Select at least one talent first.");
+      return;
+    }
+    const cards = chosen
+      .map((row) => {
+        const img = generatedTalentImage(row.managerId, row.talentName);
+        return `
+          <section class="pack">
+            <img src="${img}" alt="" />
+            <div class="meta">
+              <h2>${row.talentName}</h2>
+              <p>Managed by ${managerName(row.managerId)}</p>
+              <p class="brand">COWSHED CREATORS · MEDIA PACK</p>
+            </div>
+          </section>`;
+      })
+      .join("");
+    const html = `<!doctype html><html><head><meta charset="utf-8" />
+      <title>Cowshed Media Pack</title>
+      <style>
+        * { box-sizing: border-box; }
+        body { font-family: Arial, Helvetica, sans-serif; margin: 0; color: #111; }
+        .pack { page-break-after: always; padding: 48px; display: flex; gap: 32px; align-items: center; min-height: 100vh; }
+        .pack img { width: 45%; max-width: 420px; border-radius: 16px; }
+        .meta h2 { font-size: 44px; margin: 0 0 8px; }
+        .meta p { font-size: 20px; margin: 4px 0; color: #444; }
+        .meta .brand { margin-top: 24px; letter-spacing: 4px; font-weight: 800; font-size: 14px; color: #111; }
+        @media print { .pack { min-height: auto; height: 100vh; } }
+      </style></head><body>${cards}</body></html>`;
+    const win = window.open("", "_blank");
+    if (!win) {
+      window.alert("Please allow pop-ups to download the media pack.");
+      return;
+    }
+    win.document.open();
+    win.document.write(html);
+    win.document.close();
+    win.focus();
+    // Give the images a tick to decode before invoking print.
+    win.onload = () => win.print();
+  };
+
   return (
     <>
       <div className="topbar">
@@ -121,7 +169,7 @@ export default function MediaPacksView() {
           <button className="secondary" type="button" onClick={() => setSelectedKeys([])}>
             Clear
           </button>
-          <button className="primary" type="button">
+          <button className="primary" type="button" onClick={downloadMediaPack}>
             Download media pack PDF
           </button>
         </div>

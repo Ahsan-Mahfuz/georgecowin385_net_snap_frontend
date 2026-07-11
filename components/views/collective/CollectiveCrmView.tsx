@@ -11,7 +11,12 @@ import {
   type Profile,
 } from "@/lib/mock";
 import { useCollectiveTeam } from "@/hooks/useCollectiveTeam";
-import { useGetCollectiveDealsQuery } from "@/redux/api/collectiveDealApi";
+import {
+  useGetCollectiveDealsQuery,
+  useCreateCollectiveInvoiceMutation,
+  useMarkCollectiveInvoicedMutation,
+  useMarkCollectivePaidMutation,
+} from "@/redux/api/collectiveDealApi";
 import { toCollectiveDeal } from "@/lib/adapters";
 
 function currencyInput(value: number): string {
@@ -39,6 +44,9 @@ export default function CollectiveCrmView() {
   const sessionUser = useSelector((s: RootState) => s.session.collectiveUser);
   const { users: collectiveSalesUsers } = useCollectiveTeam();
   const { data: dealData = [] } = useGetCollectiveDealsQuery();
+  const [createInvoice] = useCreateCollectiveInvoiceMutation();
+  const [markInvoiced] = useMarkCollectiveInvoicedMutation();
+  const [markPaid] = useMarkCollectivePaidMutation();
 
   // Fall back to the first sales user only until the session hydrates.
   const collectiveUser: Profile = sessionUser || collectiveSalesUsers[0] || {
@@ -467,18 +475,18 @@ export default function CollectiveCrmView() {
                         "Uses the separate Cowshed Collective Xero connection in the real build."}
                     </span>
                     <div className="section-actions">
-                      <button className="secondary" type="button">
+                      <button className="secondary" type="button" onClick={() => createInvoice(selectedDeal.id)}>
                         {selectedDeal.xeroInvoiceId
                           ? "Update draft in Collective Xero"
                           : "Create draft in Collective Xero"}
                       </button>
                       {selectedDeal.xeroInvoiceId ? (
-                        <button className="secondary" type="button">
+                        <button className="secondary" type="button" onClick={() => markInvoiced(selectedDeal.id)}>
                           Mark invoiced
                         </button>
                       ) : null}
                       {selectedDeal.xeroInvoiceId ? (
-                        <button className="secondary" type="button">
+                        <button className="secondary" type="button" onClick={() => markPaid(selectedDeal.id)}>
                           Mark paid/reconciled
                         </button>
                       ) : null}

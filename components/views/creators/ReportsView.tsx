@@ -1,8 +1,17 @@
 "use client";
 
 import { useState } from "react";
-import { months, money, stageClass } from "@/lib/format";
-import { reportStages } from "@/lib/mock";
+import { months, money, sum, stageClass } from "@/lib/format";
+import { reportStages, type Deal } from "@/lib/mock";
+import { useCreatorsTeam } from "@/hooks/useCreatorsTeam";
+import { useGetTalentsQuery } from "@/redux/api/talentApi";
+import { useGetDealsQuery } from "@/redux/api/dealApi";
+import { toDeal, talentNamesForManager } from "@/lib/adapters";
+import type { ApiTalent } from "@/redux/api/types";
+
+// Set by the component so module-level helpers resolve live data.
+let liveUsers: { id: string; name: string }[] = [];
+let liveTalents: ApiTalent[] = [];
 
 // The reports view depends on the CRM data store (state.crmDeals, state.talentExpenses,
 // state.talentEmails, state.productionRequests, state.talentRemittanceSends). These are all
@@ -41,15 +50,37 @@ function talentKey(managerId: string, talentName: string): string {
   return `${managerId}::${talentName}`;
 }
 
-// CRM report deals are empty until deals carry stage/payment data. These are
-// passthroughs so the (empty) report tables compile.
 function managerName(id: string): string {
   if (id === "admin") return "Admin";
-  return id || "Unassigned";
+  return liveUsers.find((u) => u.id === id)?.name || "Unassigned";
 }
 
+// Talent roster from the live Talent collection (all managers).
 function reportTalentOptions(): TalentOption[] {
-  return [];
+  const rows = new Map<string, TalentOption>();
+  liveUsers.forEach((u) => {
+    talentNamesForManager(liveTalents, u.id).forEach((talentName) => {
+      rows.set(talentKey(u.id, talentName), { key: talentKey(u.id, talentName), managerId: u.id, talentName });
+    });
+  });
+  return [...rows.values()].sort(
+    (a, b) => a.talentName.localeCompare(b.talentName) || managerName(a.managerId).localeCompare(managerName(b.managerId)),
+  );
+}
+
+// Map a live Deal into the minimal CrmDeal shape the report cards use.
+function dealToReport(deal: Deal): CrmDeal {
+  return {
+    id: deal.id,
+    managerId: deal.managerId,
+    talentName: deal.talentName,
+    stage: deal.stage || (deal.status === "Confirmed" ? "Contract Signed" : "Conversation"),
+    company: deal.company || "",
+    campaignName: deal.campaignName,
+    amount: sum(deal.monthValues),
+    currency: deal.currency,
+    xeroInvoiceId: deal.xeroInvoiceId,
+  };
 }
 
 function displayDate(value: string): string {
@@ -104,6 +135,13 @@ function talentPayableAmount(deal: CrmDeal): number {
 const reportsSubtitleFallback = "Talent deal stage and payment run reporting";
 
 export default function ReportsView() {
+  const { users } = useCreatorsTeam();
+  const { data: talentData = [] } = useGetTalentsQuery();
+  const { data: dealData = [] } = useGetDealsQuery();
+  liveUsers = users;
+  liveTalents = talentData as ApiTalent[];
+  const liveReportDeals = dealData.map(toDeal);
+
   const [activeReportsTab, setActiveReportsTab] = useState<"status" | "remittance">("status");
   const [selectedReportTalentKey, setSelectedReportTalentKey] = useState<string | null>(null);
   const [selectedRemittanceTalentKey, setSelectedRemittanceTalentKey] = useState<string | null>(null);
@@ -316,7 +354,10 @@ export default function ReportsView() {
   const nextRunDate = nextPaymentRunDate();
   const reportStageList = reportStages as ReportStage[];
 
-  // crmDeals is empty on first load, so every stage bucket is empty.
+  // Group live deals (for the selected talent, or all) into report stage buckets.
+  const reportDeals = liveReportDeals
+    .filter((d) => (selected ? d.managerId === selected.managerId && d.talentName === selected.talentName : true))
+    .map(dealToReport);
   const bucketDeals: Record<ReportStage, CrmDeal[]> = {
     Conversation: [],
     Negotiation: [],
@@ -325,6 +366,10 @@ export default function ReportsView() {
     "On Next Payment Run": [],
     Paid: [],
   };
+  reportDeals.forEach((deal) => {
+    const stage = (reportStageList.includes(deal.stage as ReportStage) ? deal.stage : "Conversation") as ReportStage;
+    bucketDeals[stage].push(deal);
+  });
 
   const navigateTalent = (direction: "previous" | "next") => {
     if (!talents.length) return;

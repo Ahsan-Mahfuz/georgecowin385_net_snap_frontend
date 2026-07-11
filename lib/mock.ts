@@ -21,6 +21,18 @@ export interface Deal {
   stage?: string;
   monthValues: number[];
   costRate: number;
+  // CRM / cashflow / invoicing
+  company?: string;
+  contactEmail?: string;
+  paymentTerm?: string;
+  customPaymentDays?: number;
+  signedMonthIndex?: number;
+  currency?: "GBP" | "USD";
+  poNumber?: string;
+  xeroInvoiceId?: string;
+  xeroStatus?: string;
+  financeStatus?: string;
+  invoiceDate?: string;
 }
 
 export interface OverheadRow {

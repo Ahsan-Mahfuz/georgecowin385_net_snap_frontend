@@ -12,7 +12,11 @@ export const settingsApi = baseApi.injectEndpoints({
       query: (body) => ({ url: "/settings", method: "PATCH", body }),
       invalidatesTags: ["Settings"],
     }),
+    getXeroStatus: builder.query<{ connected: boolean }, void>({
+      query: () => "/xero/status",
+      transformResponse: (res: ApiEnvelope<{ connected: boolean }>) => res.data,
+    }),
   }),
 });
 
-export const { useGetSettingsQuery, useUpdateSettingsMutation } = settingsApi;
+export const { useGetSettingsQuery, useUpdateSettingsMutation, useGetXeroStatusQuery } = settingsApi;
