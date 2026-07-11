@@ -36,6 +36,17 @@ export function toDeal(d: ApiDeal): Deal {
     stage: d.stage,
     monthValues: d.monthValues || [],
     costRate: d.costRate,
+    company: d.company,
+    contactEmail: d.contactEmail,
+    paymentTerm: d.paymentTerm,
+    customPaymentDays: d.customPaymentDays,
+    signedMonthIndex: d.signedMonthIndex,
+    currency: d.currency,
+    poNumber: d.poNumber,
+    xeroInvoiceId: d.xeroInvoiceId,
+    xeroStatus: d.xeroStatus,
+    financeStatus: d.financeStatus,
+    invoiceDate: d.invoiceDate,
   };
 }
 

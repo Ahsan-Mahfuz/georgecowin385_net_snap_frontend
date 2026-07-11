@@ -20,6 +20,26 @@ export const dealApi = baseApi.injectEndpoints({
       query: (id) => ({ url: `/deal/${id}`, method: "DELETE" }),
       invalidatesTags: ["Deal"],
     }),
+    createDealInvoice: builder.mutation<ApiDeal, string>({
+      query: (id) => ({ url: `/deal/${id}/xero-invoice`, method: "POST" }),
+      invalidatesTags: ["Deal"],
+    }),
+    markDealInvoiced: builder.mutation<ApiDeal, string>({
+      query: (id) => ({ url: `/deal/${id}/mark-invoiced`, method: "POST" }),
+      invalidatesTags: ["Deal"],
+    }),
+    markDealPaid: builder.mutation<ApiDeal, string>({
+      query: (id) => ({ url: `/deal/${id}/mark-paid`, method: "POST" }),
+      invalidatesTags: ["Deal"],
+    }),
+    sendDealRemittance: builder.mutation<ApiDeal, string>({
+      query: (id) => ({ url: `/deal/${id}/send-remittance`, method: "POST" }),
+      invalidatesTags: ["Deal"],
+    }),
+    markDealTalentPaid: builder.mutation<ApiDeal, string>({
+      query: (id) => ({ url: `/deal/${id}/mark-talent-paid`, method: "POST" }),
+      invalidatesTags: ["Deal"],
+    }),
   }),
 });
 
@@ -28,4 +48,9 @@ export const {
   useCreateDealMutation,
   useUpdateDealMutation,
   useDeleteDealMutation,
+  useCreateDealInvoiceMutation,
+  useMarkDealInvoicedMutation,
+  useMarkDealPaidMutation,
+  useSendDealRemittanceMutation,
+  useMarkDealTalentPaidMutation,
 } = dealApi;

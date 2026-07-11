@@ -39,6 +39,41 @@ export interface ApiDeal {
   stage?: string;
   monthValues: number[];
   costRate: number;
+  contactEmail?: string;
+  paymentTerm: string;
+  customPaymentDays: number;
+  signedMonthIndex: number;
+  currency: "GBP" | "USD";
+  poNumber?: string;
+  xeroOrg: string;
+  xeroInvoiceId: string;
+  xeroStatus: string;
+  invoiceDate?: string;
+  financeStatus: string;
+  remittanceStatus?: string;
+  remittanceSentAt?: string;
+  remittancePaidAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ApiProductionItem {
+  name: string;
+  days: number;
+  rate: number;
+}
+
+export interface ApiProductionRequest {
+  _id: string;
+  manager: ApiManagerRef | string;
+  submittedBy: ApiManagerRef | string;
+  talentName: string;
+  shootDate: string;
+  videoBrief: string;
+  items: ApiProductionItem[];
+  total: number;
+  status: "pending" | "scheduled" | "completed" | "rejected";
+  note?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -91,6 +126,21 @@ export interface ApiSettings {
   managerSalaries: Record<string, number>;
   commissionRates: Record<string, number>;
   productionRates: Record<string, number>;
+}
+
+export interface ApiApproval {
+  _id: string;
+  kind: "deal" | "expense";
+  title: string;
+  amount: number;
+  monthIndex: number;
+  submittedBy: ApiManagerRef | string;
+  approver?: ApiManagerRef | string;
+  manager?: ApiManagerRef | string;
+  status: "pending" | "approved" | "rejected";
+  rejectionReason: string;
+  note: string;
+  createdAt: string;
 }
 
 export interface ApiCollectiveDeal {

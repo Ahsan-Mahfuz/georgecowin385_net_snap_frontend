@@ -6,8 +6,13 @@ import { productionItems } from "@/lib/mock";
 import { useCreatorsTeam } from "@/hooks/useCreatorsTeam";
 import { useGetTalentsQuery } from "@/redux/api/talentApi";
 import { useGetSettingsQuery } from "@/redux/api/settingsApi";
-import { talentNamesForManager } from "@/lib/adapters";
-import type { ApiTalent } from "@/redux/api/types";
+import {
+  useGetProductionRequestsQuery,
+  useCreateProductionRequestMutation,
+  useUpdateProductionRequestMutation,
+} from "@/redux/api/productionRequestApi";
+import { talentNamesForManager, refId } from "@/lib/adapters";
+import type { ApiTalent, ApiProductionRequest } from "@/redux/api/types";
 
 // Mirrors currencyInput() from the prototype.
 function currencyInput(value: number): string {
@@ -18,25 +23,46 @@ function currencyInput(value: number): string {
   }).format(Number(value || 0));
 }
 
+function displayDate(value: string): string {
+  if (!value) return "-";
+  const date = new Date(`${value}T00:00:00`);
+  return Number.isNaN(date.getTime())
+    ? value
+    : date.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+}
+
+function refName(ref: ApiProductionRequest["manager"], fallback = "Unassigned"): string {
+  if (!ref) return fallback;
+  return typeof ref === "string" ? fallback : ref.name;
+}
+
+function statusPill(status: ApiProductionRequest["status"]): string {
+  if (status === "completed") return "confirmed";
+  if (status === "scheduled") return "admin";
+  if (status === "rejected") return "rejected";
+  return "pipeline";
+}
+
 type ProductionTab = "requests" | "rates";
 
 export default function ProductionView() {
-  const { managers: requestManagers } = useCreatorsTeam();
+  const { managers: requestManagers, users } = useCreatorsTeam();
   const { data: talentData = [] } = useGetTalentsQuery();
   const { data: settings } = useGetSettingsQuery();
+  const { data: requests = [], isLoading } = useGetProductionRequestsQuery();
+  const [createRequest] = useCreateProductionRequestMutation();
+  const [updateRequest] = useUpdateProductionRequestMutation();
   const productionRates: Record<string, number> = settings?.productionRates || {};
 
   const [activeTab, setActiveTab] = useState<ProductionTab>("requests");
-  const [activeManagerId, setActiveManagerId] = useState<string>(
-    requestManagers[0]?.id ?? ""
-  );
+  const [activeManagerId, setActiveManagerId] = useState<string>(requestManagers[0]?.id ?? "");
+  const [talentName, setTalentName] = useState("");
+  const [shootDate, setShootDate] = useState("");
+  const [videoBrief, setVideoBrief] = useState("");
   const [checkedItems, setCheckedItems] = useState<Record<string, boolean>>({});
   const [itemDays, setItemDays] = useState<Record<string, number>>({});
 
-  // No production requests seeded — reproduce the empty states verbatim.
-  const visibleRequests: never[] = [];
-  const calendarRequests: never[] = [];
-  const pendingRequests: never[] = [];
+  const managerName = (id: string) => users.find((u) => u.id === id)?.name || "Unassigned";
 
   const total = useMemo(() => {
     return productionItems.reduce((running, item) => {
@@ -46,6 +72,40 @@ export default function ProductionView() {
     }, 0);
   }, [checkedItems, itemDays, productionRates]);
 
+  const managerId = requestManagers.some((m) => m.id === activeManagerId)
+    ? activeManagerId
+    : requestManagers[0]?.id ?? "";
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!managerId || !talentName.trim()) return;
+    const items = productionItems
+      .filter((item) => checkedItems[item])
+      .map((item) => ({
+        name: item,
+        days: Math.max(1, Number(itemDays[item] || 1)),
+        rate: Number(productionRates[item] || 0),
+      }));
+    await createRequest({
+      manager: managerId,
+      talentName: talentName.trim(),
+      shootDate,
+      videoBrief,
+      items,
+      total,
+    }).unwrap();
+    setTalentName("");
+    setShootDate("");
+    setVideoBrief("");
+    setCheckedItems({});
+    setItemDays({});
+  };
+
+  const pendingRequests = requests.filter((r) => r.status === "pending");
+  const calendarRequests = requests.filter(
+    (r) => (r.status === "scheduled" || r.status === "completed") && r.shootDate,
+  );
+
   return (
     <>
       <div className="topbar">
@@ -53,7 +113,7 @@ export default function ProductionView() {
           <p className="eyebrow">Cowshed Creators Portal</p>
           <h1>Production</h1>
         </div>
-        <div className="asof">Request production support and track chargebacks</div>
+        <div className="asof">Request production support and track shoots</div>
       </div>
 
       <section className="section soft-section">
@@ -90,10 +150,7 @@ export default function ProductionView() {
                 {productionItems.map((item) => (
                   <div className="field" key={item}>
                     <label>{item}</label>
-                    <input
-                      defaultValue={currencyInput(productionRates[item])}
-                      inputMode="decimal"
-                    />
+                    <input defaultValue={currencyInput(productionRates[item])} inputMode="decimal" />
                   </div>
                 ))}
               </div>
@@ -108,13 +165,12 @@ export default function ProductionView() {
               <span className="pill confirmed">Admin entry</span>
             </div>
             <div className="section-body">
-              <form className="form-grid" onSubmit={(e) => e.preventDefault()}>
+              <form className="form-grid" onSubmit={handleSubmit}>
                 <div className="field">
                   <label htmlFor="productionManagerId">Talent manager</label>
                   <select
                     id="productionManagerId"
-                    name="managerId"
-                    value={activeManagerId}
+                    value={managerId}
                     onChange={(e) => setActiveManagerId(e.target.value)}
                   >
                     {requestManagers.map((manager) => (
@@ -128,27 +184,35 @@ export default function ProductionView() {
                   <label htmlFor="productionTalent">Talent</label>
                   <input
                     id="productionTalent"
-                    name="talentName"
                     list="production-talent-options"
                     required
+                    value={talentName}
+                    onChange={(e) => setTalentName(e.target.value)}
                     placeholder="Add or choose talent"
                   />
                   <datalist id="production-talent-options">
-                    {talentNamesForManager(talentData as ApiTalent[], activeManagerId).map((talentName) => (
-                      <option value={talentName} key={talentName}></option>
+                    {talentNamesForManager(talentData as ApiTalent[], managerId).map((name) => (
+                      <option value={name} key={name}></option>
                     ))}
                   </datalist>
                 </div>
                 <div className="field">
                   <label htmlFor="productionDate">Date of production</label>
-                  <input id="productionDate" name="shootDate" type="date" required />
+                  <input
+                    id="productionDate"
+                    type="date"
+                    required
+                    value={shootDate}
+                    onChange={(e) => setShootDate(e.target.value)}
+                  />
                 </div>
                 <div className="field wide">
                   <label htmlFor="productionVideoBrief">What is the video?</label>
                   <textarea
                     id="productionVideoBrief"
-                    name="videoBrief"
                     required
+                    value={videoBrief}
+                    onChange={(e) => setVideoBrief(e.target.value)}
                     placeholder="Briefly describe the video, deliverable, or shoot"
                   ></textarea>
                 </div>
@@ -160,14 +224,9 @@ export default function ProductionView() {
                         <label className="toggle-line">
                           <input
                             type="checkbox"
-                            name="items"
-                            value={item}
                             checked={!!checkedItems[item]}
                             onChange={(e) =>
-                              setCheckedItems((prev) => ({
-                                ...prev,
-                                [item]: e.target.checked,
-                              }))
+                              setCheckedItems((prev) => ({ ...prev, [item]: e.target.checked }))
                             }
                           />{" "}
                           {item} ({money(productionRates[item])} per day)
@@ -178,13 +237,9 @@ export default function ProductionView() {
                             type="number"
                             min="1"
                             step="1"
-                            name={`days-${item}`}
                             value={itemDays[item] ?? 1}
                             onChange={(e) =>
-                              setItemDays((prev) => ({
-                                ...prev,
-                                [item]: Number(e.target.value),
-                              }))
+                              setItemDays((prev) => ({ ...prev, [item]: Number(e.target.value) }))
                             }
                           />
                         </label>
@@ -206,14 +261,28 @@ export default function ProductionView() {
           <section className="section">
             <div className="section-head">
               <h2>Shoot calendar</h2>
-              <span className="pill confirmed">
-                {calendarRequests.length} shoot days
-              </span>
+              <span className="pill confirmed">{calendarRequests.length} shoot days</span>
             </div>
-            <div className="section-body">
-              <div className="notice">
-                No shoot days to show on the calendar yet.
-              </div>
+            <div className="section-body manager-list">
+              {calendarRequests.length ? (
+                calendarRequests
+                  .slice()
+                  .sort((a, b) => a.shootDate.localeCompare(b.shootDate))
+                  .map((r) => (
+                    <article className="deal" key={r._id}>
+                      <div className="deal-line">
+                        <strong>{displayDate(r.shootDate)}</strong>
+                        <span className={`pill ${statusPill(r.status)}`}>{r.status}</span>
+                      </div>
+                      <div className="deal-line muted">
+                        <span>{r.talentName}</span>
+                        <span>{money(r.total)}</span>
+                      </div>
+                    </article>
+                  ))
+              ) : (
+                <div className="notice">No shoot days to show on the calendar yet.</div>
+              )}
             </div>
           </section>
 
@@ -223,8 +292,63 @@ export default function ProductionView() {
               <span className="pill pipeline">{pendingRequests.length} pending</span>
             </div>
             <div className="section-body manager-list">
-              {visibleRequests.length ? null : (
-                <div className="notice">No production requests yet.</div>
+              {requests.length ? (
+                requests.map((r) => (
+                  <article className="deal" key={r._id}>
+                    <div className="deal-line">
+                      <strong>{r.talentName}</strong>
+                      <span className={`pill ${statusPill(r.status)}`}>{r.status}</span>
+                    </div>
+                    <div className="deal-line muted">
+                      <span>Manager</span>
+                      <span>{refName(r.manager, managerName(refId(r.manager)))}</span>
+                    </div>
+                    <div className="deal-line muted">
+                      <span>Shoot date</span>
+                      <span>{displayDate(r.shootDate)}</span>
+                    </div>
+                    <div className="deal-line muted">
+                      <span>Amount</span>
+                      <span>{money(r.total)}</span>
+                    </div>
+                    {r.videoBrief ? (
+                      <div className="deal-line muted">
+                        <span>Brief</span>
+                        <span>{r.videoBrief}</span>
+                      </div>
+                    ) : null}
+                    {r.status === "pending" ? (
+                      <div className="deal-actions">
+                        <button
+                          className="primary"
+                          type="button"
+                          onClick={() => updateRequest({ id: r._id, body: { status: "scheduled" } })}
+                        >
+                          Schedule shoot
+                        </button>
+                        <button
+                          className="secondary danger-button"
+                          type="button"
+                          onClick={() => updateRequest({ id: r._id, body: { status: "rejected" } })}
+                        >
+                          Reject
+                        </button>
+                      </div>
+                    ) : r.status === "scheduled" ? (
+                      <div className="deal-actions">
+                        <button
+                          className="primary"
+                          type="button"
+                          onClick={() => updateRequest({ id: r._id, body: { status: "completed" } })}
+                        >
+                          Mark completed
+                        </button>
+                      </div>
+                    ) : null}
+                  </article>
+                ))
+              ) : (
+                <div className="notice">{isLoading ? "Loading…" : "No production requests yet."}</div>
               )}
             </div>
           </section>

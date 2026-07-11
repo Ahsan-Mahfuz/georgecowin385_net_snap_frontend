@@ -4,7 +4,10 @@ import { Fragment, useState } from "react";
 import { months, money, currentMonthIndex } from "@/lib/format";
 import { useCreatorsTeam } from "@/hooks/useCreatorsTeam";
 import { useGetTalentsQuery } from "@/redux/api/talentApi";
+import { useGetDealsQuery, useMarkDealTalentPaidMutation, useSendDealRemittanceMutation } from "@/redux/api/dealApi";
+import { useGetExpensesQuery } from "@/redux/api/expenseApi";
 import { refId } from "@/lib/adapters";
+import type { ApiDeal, ApiExpense } from "@/redux/api/types";
 
 // ---- local helpers mirrored from the prototype (app.js) ----------------------
 
@@ -15,6 +18,7 @@ function talentKey(managerId: string, talentName: string): string {
 function displayDate(value: string): string {
   if (!value) return "-";
   const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
 }
 
@@ -29,14 +33,15 @@ function monthDateRange(monthIndex: number): { startDate: string; endDate: strin
   };
 }
 
+const sumMonths = (values: number[]): number => (values || []).reduce((t, v) => t + Number(v || 0), 0);
+
 interface TalentRow {
   key: string;
   managerId: string;
   talentName: string;
 }
 
-
-// ---- invoice model (empty with static data — crmDeals is empty on load) ------
+// ---- invoice model derived from Paid deals -----------------------------------
 
 interface InvoiceLine {
   dealId: string;
@@ -45,7 +50,7 @@ interface InvoiceLine {
   grossDeal: number;
   dealShare: number;
   expenses: number;
-  paidEarly: boolean;
+  paidEarly: boolean; // this deal's remittance already settled
   paidEarlyAmount: number;
   paidEarlyAt?: string;
 }
@@ -56,7 +61,9 @@ interface TalentInvoice {
   talentName: string;
   talentKey: string;
   paymentRunDate: string;
-  paidAt: string;
+  paidAt: string; // set when every line's remittance is Paid
+  remittanceSent: boolean;
+  dealIds: string[];
   lines: InvoiceLine[];
   totalDealShare: number;
   totalExpenses: number;
@@ -65,13 +72,96 @@ interface TalentInvoice {
   details: {
     invoiceName?: string;
     invoiceEmail?: string;
-    invoiceAddress?: string;
-    bankName?: string;
-    accountName?: string;
-    sortCode?: string;
-    accountNumber?: string;
   };
-  xeroBill?: { billId?: string; status?: string };
+}
+
+// Talent gets costRate% of the gross deal value (default 80%).
+function dealShareOf(deal: ApiDeal): number {
+  const gross = sumMonths(deal.monthValues);
+  const rate = Number(deal.costRate ?? 80);
+  return Math.round(gross * (rate / 100));
+}
+
+function paymentRunOf(deal: ApiDeal): string {
+  if (deal.invoiceDate) return deal.invoiceDate;
+  return monthDateRange(deal.signedMonthIndex || 0).endDate;
+}
+
+function buildInvoices(deals: ApiDeal[], expenses: ApiExpense[]): TalentInvoice[] {
+  // Only deals the brand has paid are ready for talent remittance.
+  const eligible = deals.filter((d) => d.financeStatus === "Paid");
+  const groups = new Map<string, ApiDeal[]>();
+  for (const deal of eligible) {
+    const key = talentKey(refId(deal.manager), deal.talentName);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push(deal);
+  }
+
+  const invoices: TalentInvoice[] = [];
+  for (const [key, groupDeals] of groups.entries()) {
+    const managerId = refId(groupDeals[0].manager);
+    const talentName = groupDeals[0].talentName;
+
+    // Talent expenses (100% reimbursed) for this talent — attached to the first line.
+    const talentExpenses = expenses
+      .filter((e) => e.kind === "talent" && e.talentName === talentName)
+      .reduce((t, e) => t + Number(e.amount || 0), 0);
+
+    const lines: InvoiceLine[] = groupDeals.map((deal, i) => {
+      const grossDeal = sumMonths(deal.monthValues);
+      const dealShare = dealShareOf(deal);
+      const expensesOnLine = i === 0 ? talentExpenses : 0;
+      const paidEarly = deal.remittanceStatus === "Paid";
+      const lineTotal = dealShare + expensesOnLine;
+      return {
+        dealId: deal._id,
+        description: `${deal.campaignName || deal.company || "Deal"}`,
+        total: lineTotal,
+        grossDeal,
+        dealShare,
+        expenses: expensesOnLine,
+        paidEarly,
+        paidEarlyAmount: lineTotal,
+        paidEarlyAt: deal.remittancePaidAt,
+      };
+    });
+
+    const allPaid = groupDeals.every((d) => d.remittanceStatus === "Paid");
+    const anySent = groupDeals.some((d) => d.remittanceStatus === "Sent" || d.remittanceStatus === "Paid");
+    const latestPaidAt = groupDeals
+      .map((d) => d.remittancePaidAt || "")
+      .filter(Boolean)
+      .sort()
+      .pop() || "";
+
+    const totalDealShare = lines.reduce((t, l) => t + l.dealShare, 0);
+    const totalExpenses = lines.reduce((t, l) => t + l.expenses, 0);
+    const totalAlreadyPaid = lines.filter((l) => l.paidEarly).reduce((t, l) => t + l.paidEarlyAmount, 0);
+    const grand = totalDealShare + totalExpenses;
+
+    invoices.push({
+      id: `talent-invoice-${key}`,
+      managerId,
+      talentName,
+      talentKey: key,
+      paymentRunDate: paymentRunOf(groupDeals[0]),
+      paidAt: allPaid ? latestPaidAt || paymentRunOf(groupDeals[0]) : "",
+      remittanceSent: anySent,
+      dealIds: groupDeals.map((d) => d._id),
+      lines,
+      totalDealShare,
+      totalExpenses,
+      totalAlreadyPaid,
+      total: grand - totalAlreadyPaid,
+      details: { invoiceName: talentName, invoiceEmail: deal0Email(groupDeals) },
+    });
+  }
+  return invoices;
+}
+
+function deal0Email(deals: ApiDeal[]): string {
+  const withEmail = deals.find((d) => d.contactEmail);
+  return withEmail?.contactEmail || "";
 }
 
 interface PaymentRunGroup {
@@ -100,18 +190,23 @@ function paymentRunGroups(invoices: TalentInvoice[]): PaymentRunGroup[] {
 function statusLabel(invoice: TalentInvoice): string {
   if (invoice.paidAt) return "Paid to talent";
   if (invoice.totalAlreadyPaid > 0) return "Partly paid to talent";
+  if (invoice.remittanceSent) return "Remittance sent";
   return "Next payment run";
 }
 
 function statusClass(invoice: TalentInvoice): string {
   if (invoice.paidAt) return "confirmed";
-  if (invoice.totalAlreadyPaid > 0) return "admin";
+  if (invoice.totalAlreadyPaid > 0 || invoice.remittanceSent) return "admin";
   return "pipeline";
 }
 
 export default function TalentInvoicesView() {
   const { users } = useCreatorsTeam();
   const { data: talentData = [] } = useGetTalentsQuery();
+  const { data: dealData = [], isLoading } = useGetDealsQuery();
+  const { data: expenseData = [] } = useGetExpensesQuery();
+  const [sendRemittance] = useSendDealRemittanceMutation();
+  const [markTalentPaid] = useMarkDealTalentPaidMutation();
   const managerName = (id: string) => users.find((u) => u.id === id)?.name || "Unassigned";
 
   const [selectedTalentKey, setSelectedTalentKey] = useState<string>("all");
@@ -121,9 +216,7 @@ export default function TalentInvoicesView() {
   const [endDate, setEndDate] = useState<string>("2026-12-31");
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<string | null>(null);
 
-  // Talent invoices are built from CRM deals (empty until deals carry invoice
-  // data). The talent roster comes from the live Talent collection.
-  const allInvoices: TalentInvoice[] = [];
+  const allInvoices = buildInvoices(dealData, expenseData);
   const talentRows: TalentRow[] = talentData
     .map((t) => {
       const managerId = refId(t.manager);
@@ -133,15 +226,9 @@ export default function TalentInvoicesView() {
 
   const range =
     mode === "custom"
-      ? {
-          startDate,
-          endDate,
-          label: `${displayDate(startDate)} - ${displayDate(endDate)}`,
-        }
+      ? { startDate, endDate, label: `${displayDate(startDate)} - ${displayDate(endDate)}` }
       : monthDateRange(monthIndex);
 
-  // Filter by selected talent and payment-run date range. With static data the
-  // source list is empty, so this always resolves to no invoices.
   const invoices = allInvoices.filter(
     (invoice) =>
       (selectedTalentKey === "all" || invoice.talentKey === selectedTalentKey) &&
@@ -152,8 +239,20 @@ export default function TalentInvoicesView() {
   const selectedInvoice =
     invoices.find((invoice) => invoice.id === selectedInvoiceId) || invoices[0] || null;
   const total = invoices.reduce((sumTotal, invoice) => sumTotal + invoice.total, 0);
-
   const groups = paymentRunGroups(invoices);
+
+  // Send remittance advice to the talent for every not-yet-settled deal on the invoice.
+  const onSendRemittance = async (invoice: TalentInvoice) => {
+    const pending = invoice.lines.filter((l) => !l.paidEarly);
+    await Promise.all(pending.map((l) => sendRemittance(l.dealId).unwrap().catch(() => null)));
+  };
+
+  const onMarkInvoicePaid = async (invoice: TalentInvoice) => {
+    const pending = invoice.lines.filter((l) => !l.paidEarly);
+    await Promise.all(pending.map((l) => markTalentPaid(l.dealId).unwrap().catch(() => null)));
+  };
+
+  const onMarkLinePaid = (dealId: string) => markTalentPaid(dealId);
 
   return (
     <>
@@ -175,10 +274,7 @@ export default function TalentInvoicesView() {
           <div className="section-body form-grid compact-action-grid">
             <div className="field">
               <label>Talent</label>
-              <select
-                value={selectedTalentKey}
-                onChange={(event) => setSelectedTalentKey(event.target.value)}
-              >
+              <select value={selectedTalentKey} onChange={(e) => setSelectedTalentKey(e.target.value)}>
                 <option value="all">All talent</option>
                 {talentRows.map((row) => (
                   <option key={row.key} value={row.key}>
@@ -190,10 +286,7 @@ export default function TalentInvoicesView() {
 
             <div className="field">
               <label>Date view</label>
-              <select
-                value={mode}
-                onChange={(event) => setMode(event.target.value as "month" | "custom")}
-              >
+              <select value={mode} onChange={(e) => setMode(e.target.value as "month" | "custom")}>
                 <option value="month">By month</option>
                 <option value="custom">Custom dates</option>
               </select>
@@ -203,28 +296,17 @@ export default function TalentInvoicesView() {
               <>
                 <div className="field">
                   <label>Start date</label>
-                  <input
-                    type="date"
-                    value={startDate}
-                    onChange={(event) => setStartDate(event.target.value)}
-                  />
+                  <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
                 </div>
                 <div className="field">
                   <label>End date</label>
-                  <input
-                    type="date"
-                    value={endDate}
-                    onChange={(event) => setEndDate(event.target.value)}
-                  />
+                  <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
                 </div>
               </>
             ) : (
               <div className="field">
                 <label>Month</label>
-                <select
-                  value={monthIndex}
-                  onChange={(event) => setMonthIndex(Number(event.target.value))}
-                >
+                <select value={monthIndex} onChange={(e) => setMonthIndex(Number(e.target.value))}>
                   {months.map((month, index) => (
                     <option key={month} value={index}>
                       {month}
@@ -288,9 +370,7 @@ export default function TalentInvoicesView() {
                           <td>{managerName(invoice.managerId)}</td>
                           <td>{displayDate(invoice.paymentRunDate)}</td>
                           <td>
-                            <span className={`pill ${statusClass(invoice)}`}>
-                              {statusLabel(invoice)}
-                            </span>
+                            <span className={`pill ${statusClass(invoice)}`}>{statusLabel(invoice)}</span>
                           </td>
                           <td>{invoice.lines.length}</td>
                           <td>{money(invoice.total)}</td>
@@ -300,7 +380,9 @@ export default function TalentInvoicesView() {
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={6}>No talent invoices in this period.</td>
+                    <td colSpan={6}>
+                      {isLoading ? "Loading…" : "No talent invoices in this period."}
+                    </td>
                   </tr>
                 )}
               </tbody>
@@ -316,12 +398,17 @@ export default function TalentInvoicesView() {
             ) : null}
           </div>
           {selectedInvoice ? (
-            <TalentInvoiceDetail invoice={selectedInvoice} />
+            <TalentInvoiceDetail
+              invoice={selectedInvoice}
+              onSendRemittance={onSendRemittance}
+              onMarkInvoicePaid={onMarkInvoicePaid}
+              onMarkLinePaid={onMarkLinePaid}
+            />
           ) : (
             <div className="section-body">
               <div className="notice">
-                No talent invoices in this period yet. Invoices are created once deals are in On Next
-                Payment Run or Paid and have a Xero paid/reconciled date.
+                No talent invoices in this period yet. Invoices are created once a deal has been marked
+                Paid in Finance Actions (the brand has paid).
               </div>
             </div>
           )}
@@ -331,7 +418,17 @@ export default function TalentInvoicesView() {
   );
 }
 
-function TalentInvoiceDetail({ invoice }: { invoice: TalentInvoice }) {
+function TalentInvoiceDetail({
+  invoice,
+  onSendRemittance,
+  onMarkInvoicePaid,
+  onMarkLinePaid,
+}: {
+  invoice: TalentInvoice;
+  onSendRemittance: (invoice: TalentInvoice) => void;
+  onMarkInvoicePaid: (invoice: TalentInvoice) => void;
+  onMarkLinePaid: (dealId: string) => void;
+}) {
   const details = invoice.details;
   return (
     <>
@@ -339,7 +436,7 @@ function TalentInvoiceDetail({ invoice }: { invoice: TalentInvoice }) {
         <div className="invoice-heading">
           <div>
             <span>Talent invoice</span>
-            <strong>{invoice.id.replace("talent-invoice-", "").toUpperCase()}</strong>
+            <strong>{invoice.talentName.toUpperCase()}</strong>
           </div>
           <div>
             <span>Payment run</span>
@@ -347,9 +444,7 @@ function TalentInvoiceDetail({ invoice }: { invoice: TalentInvoice }) {
           </div>
           <div>
             <span>Status</span>
-            <strong>
-              {invoice.paidAt ? `Paid ${displayDate(invoice.paidAt)}` : statusLabel(invoice)}
-            </strong>
+            <strong>{invoice.paidAt ? `Paid ${displayDate(invoice.paidAt)}` : statusLabel(invoice)}</strong>
           </div>
         </div>
         <div className="report-card-grid">
@@ -362,24 +457,12 @@ function TalentInvoiceDetail({ invoice }: { invoice: TalentInvoice }) {
             <strong>{details.invoiceEmail || "-"}</strong>
           </div>
           <div>
-            <span>Address</span>
-            <strong>{details.invoiceAddress || "-"}</strong>
+            <span>Deals</span>
+            <strong>{invoice.lines.length}</strong>
           </div>
           <div>
-            <span>Bank</span>
-            <strong>
-              {[details.bankName, details.accountName, details.sortCode, details.accountNumber]
-                .filter(Boolean)
-                .join(" · ") || "-"}
-            </strong>
-          </div>
-          <div>
-            <span>Xero bill</span>
-            <strong>{invoice.xeroBill?.billId || "-"}</strong>
-          </div>
-          <div>
-            <span>Bill status</span>
-            <strong>{invoice.paidAt ? "Paid in Xero" : invoice.xeroBill?.status || "Draft Bill"}</strong>
+            <span>Remittance</span>
+            <strong>{invoice.paidAt ? "Paid" : invoice.remittanceSent ? "Sent" : "Not sent"}</strong>
           </div>
         </div>
       </div>
@@ -387,18 +470,22 @@ function TalentInvoiceDetail({ invoice }: { invoice: TalentInvoice }) {
       <div className="section-body">
         <div className="invoice-action-row">
           <div className="notice soft-note">
-            Xero draft bill created for this payment run invoice.
+            {invoice.remittanceSent
+              ? "Remittance advice sent to the talent for this payment run."
+              : "Send the remittance advice to the talent, then mark it paid once settled."}
           </div>
-          <button className="secondary" type="button">
-            See bill in Xero
-          </button>
+          {!invoice.paidAt ? (
+            <button className="secondary" type="button" onClick={() => onSendRemittance(invoice)}>
+              {invoice.remittanceSent ? "Resend remittance" : "Send remittance"}
+            </button>
+          ) : null}
         </div>
         {invoice.paidAt ? (
           <div className="notice success-notice">
-            This talent invoice has been paid. The linked CRM deals are now in Paid.
+            This talent invoice has been paid. The linked CRM deals are now settled with the talent.
           </div>
         ) : (
-          <button className="primary" type="button">
+          <button className="primary" type="button" onClick={() => onMarkInvoicePaid(invoice)}>
             Mark talent invoice paid
           </button>
         )}
@@ -410,7 +497,7 @@ function TalentInvoiceDetail({ invoice }: { invoice: TalentInvoice }) {
             <div className="invoice-line-title">
               <strong>
                 {line.description}
-                {line.paidEarly ? <em className="line-status-paid"> Paid early</em> : null}
+                {line.paidEarly ? <em className="line-status-paid"> Paid</em> : null}
               </strong>
               <span>{line.paidEarly ? "Already paid" : money(line.total)}</span>
             </div>
@@ -420,7 +507,7 @@ function TalentInvoiceDetail({ invoice }: { invoice: TalentInvoice }) {
                 <strong>{money(line.grossDeal)}</strong>
               </div>
               <div>
-                <span>Talent 80%</span>
+                <span>Talent share</span>
                 <strong>{money(line.dealShare)}</strong>
               </div>
               <div>
@@ -436,25 +523,21 @@ function TalentInvoiceDetail({ invoice }: { invoice: TalentInvoice }) {
             </div>
             {!invoice.paidAt && !line.paidEarly ? (
               <div className="invoice-line-actions">
-                <button className="secondary" type="button">
-                  Mark this deal paid early
+                <button className="secondary" type="button" onClick={() => onMarkLinePaid(line.dealId)}>
+                  Mark this deal paid
                 </button>
               </div>
             ) : line.paidEarly ? (
               <div className="invoice-line-note">
-                Paid early{line.paidEarlyAt ? ` on ${displayDate(line.paidEarlyAt)}` : ""}. Finance
-                should not pay this line again.
+                Paid{line.paidEarlyAt ? ` on ${displayDate(line.paidEarlyAt)}` : ""}. Finance should not
+                pay this line again.
               </div>
             ) : null}
           </article>
         ))}
         <div className="invoice-total-card">
           <div>
-            <span>Gross deal</span>
-            <strong>{money(invoice.lines.reduce((t, line) => t + line.grossDeal, 0))}</strong>
-          </div>
-          <div>
-            <span>Talent 80%</span>
+            <span>Talent share</span>
             <strong>{money(invoice.totalDealShare)}</strong>
           </div>
           <div>

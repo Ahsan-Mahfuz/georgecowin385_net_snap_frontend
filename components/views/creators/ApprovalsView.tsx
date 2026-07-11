@@ -1,171 +1,53 @@
 "use client";
 
-import { months, money, sum } from "@/lib/format";
+import { useState } from "react";
+import { months, money } from "@/lib/format";
+import {
+  useGetApprovalsQuery,
+  useCreateApprovalMutation,
+  useApproveApprovalMutation,
+  useRejectApprovalMutation,
+} from "@/redux/api/approvalApi";
+import type { ApiApproval } from "@/redux/api/types";
 
-// Static UI rebuild of the prototype `approvalsView`.
-// On first load every approval collection is empty, so the view renders as
-// the admin sees it: pending deals + pending expenses, both showing their
-// empty-state notices. Role-specific "Submitted by me" and "Rejection
-// messages" sections only appear for non-admin roles (empty here as well).
-
-type Role = "admin" | "manager" | "operations" | "production" | "finance";
-
-interface PendingDeal {
-  id: string;
-  talentName: string;
-  campaignName: string;
-  managerId: string;
-  approverId: string;
-  submittedBy: string;
-  monthValues: number[];
-  crmDealId?: string;
+function refName(ref: ApiApproval["submittedBy"]): string {
+  if (!ref) return "-";
+  return typeof ref === "string" ? ref : ref.name;
 }
 
-interface PendingExpense {
-  id: string;
-  category: string;
-  managerId: string;
-  approverId: string;
-  submittedBy: string;
-  amount: number;
-  monthIndex: number;
-  note: string;
-  receiptData?: string;
-  receiptName?: string;
-}
-
-interface RejectionMessage {
-  id: string;
-  subject: string;
-  body: string;
-  readAt: string | null;
-  crmDealId?: string;
-  toManagerId: string;
-}
-
-function managerName(id: string): string {
-  // Approval collections are empty until wired to live data; passthrough keeps
-  // the (unrendered) cards compiling.
-  return id;
-}
-
-function PendingDealCard({
-  deal,
-  allowAction = true,
+function ApprovalCard({
+  item,
+  onApprove,
+  onReject,
 }: {
-  deal: PendingDeal;
-  allowAction?: boolean;
+  item: ApiApproval;
+  onApprove: (id: string) => void;
+  onReject: (id: string) => void;
 }) {
-  const totalRevenue = sum(deal.monthValues);
-  const monthLabel =
-    months.find((_, index) => Number(deal.monthValues[index] || 0) > 0) ||
-    "Multi-month";
+  const pending = item.status === "pending";
   return (
     <article className="deal">
       <div className="deal-line">
-        <strong>{deal.talentName}</strong>
-        <span className="pill pipeline">Pending approval</span>
-      </div>
-      <div className="deal-line muted">
-        <span>Campaign</span>
-        <span>{deal.campaignName}</span>
-      </div>
-      <div className="deal-line muted">
-        <span>Submitting manager</span>
-        <span>{managerName(deal.managerId)}</span>
-      </div>
-      <div className="deal-line muted">
-        <span>Approver</span>
-        <span>{managerName(deal.approverId)}</span>
-      </div>
-      <div className="deal-line muted">
-        <span>Amount</span>
-        <span>{money(totalRevenue)}</span>
-      </div>
-      <div className="deal-line muted">
-        <span>Month</span>
-        <span>{monthLabel}</span>
-      </div>
-      <div className="deal-line muted">
-        <span>Contract</span>
-        <span>
-          <span className="missing-contract">No contract attached</span>
+        <strong>{item.title}</strong>
+        <span className={`pill ${pending ? "pipeline" : item.status === "approved" ? "confirmed" : "rejected"}`}>
+          {item.status === "pending" ? "Pending approval" : item.status === "approved" ? "Approved" : "Rejected"}
         </span>
       </div>
-      <div className="deal-actions">
-        {deal.crmDealId ? (
-          <button className="secondary" type="button">
-            See deal
-          </button>
-        ) : null}
-        {allowAction ? (
-          <>
-            <button className="primary" type="button">
-              Approve
-            </button>
-            <button className="secondary danger-button" type="button">
-              Reject
-            </button>
-          </>
-        ) : null}
-      </div>
-    </article>
-  );
-}
-
-function PendingExpenseCard({
-  expense,
-  allowAction = true,
-}: {
-  expense: PendingExpense;
-  allowAction?: boolean;
-}) {
-  return (
-    <article className="deal">
-      <div className="deal-line">
-        <strong>{expense.category}</strong>
-        <span className="pill pipeline">Pending approval</span>
-      </div>
-      <div className="deal-line muted">
-        <span>Submitting manager</span>
-        <span>{managerName(expense.managerId)}</span>
-      </div>
-      <div className="deal-line muted">
-        <span>Approver</span>
-        <span>{managerName(expense.approverId)}</span>
-      </div>
-      <div className="deal-line muted">
-        <span>Amount</span>
-        <span>{money(expense.amount)}</span>
-      </div>
-      <div className="deal-line muted">
-        <span>Month</span>
-        <span>{months[expense.monthIndex]}</span>
-      </div>
-      <div className="deal-line muted">
-        <span>Note</span>
-        <span>{expense.note}</span>
-      </div>
-      <div className="deal-line muted">
-        <span>Receipt</span>
-        <span>
-          {expense.receiptData ? (
-            <a href={expense.receiptData} target="_blank" rel="noopener">
-              {expense.receiptName || "Open receipt"}
-            </a>
-          ) : (
-            "No file attached"
-          )}
-        </span>
-      </div>
-      {allowAction ? (
+      <div className="deal-line muted"><span>Type</span><span>{item.kind === "deal" ? "Deal" : "Expense"}</span></div>
+      <div className="deal-line muted"><span>Submitted by</span><span>{refName(item.submittedBy)}</span></div>
+      {item.manager ? (
+        <div className="deal-line muted"><span>Manager</span><span>{refName(item.manager)}</span></div>
+      ) : null}
+      <div className="deal-line muted"><span>Amount</span><span>{money(item.amount)}</span></div>
+      <div className="deal-line muted"><span>Month</span><span>{months[item.monthIndex] || "-"}</span></div>
+      {item.note ? <div className="deal-line muted"><span>Note</span><span>{item.note}</span></div> : null}
+      {item.status === "rejected" && item.rejectionReason ? (
+        <div className="notice">Rejected: {item.rejectionReason}</div>
+      ) : null}
+      {pending ? (
         <div className="deal-actions">
-          <button className="primary" type="button">
-            Approve
-          </button>
-          <button className="secondary danger-button" type="button">
-            Reject
-          </button>
+          <button className="primary" type="button" onClick={() => onApprove(item._id)}>Approve</button>
+          <button className="secondary danger-button" type="button" onClick={() => onReject(item._id)}>Reject</button>
         </div>
       ) : null}
     </article>
@@ -173,42 +55,37 @@ function PendingExpenseCard({
 }
 
 export default function ApprovalsView() {
-  // Static viewer role — admin by default (matches the empty first-load state).
-  const role: Role = "admin";
+  const { data = [], isLoading } = useGetApprovalsQuery();
+  const [createApproval] = useCreateApprovalMutation();
+  const [approve] = useApproveApprovalMutation();
+  const [reject] = useRejectApprovalMutation();
+  const [showArchive, setShowArchive] = useState(false);
+  const [form, setForm] = useState({ kind: "deal" as "deal" | "expense", title: "", amount: "", monthIndex: 0, note: "" });
 
-  // First-load collections are empty in the prototype.
-  const allPendingDeals: PendingDeal[] = [];
-  const allPendingExpenses: PendingExpense[] = [];
-  const allRejectionMessages: RejectionMessage[] = [];
-  const currentUserId = "admin";
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!form.title.trim()) return;
+    await createApproval({
+      kind: form.kind,
+      title: form.title.trim(),
+      amount: Number(form.amount) || 0,
+      monthIndex: form.monthIndex,
+      note: form.note,
+    });
+    setForm({ ...form, title: "", amount: "", note: "" });
+  };
 
-  const pendingDeals =
-    role === "admin"
-      ? allPendingDeals
-      : allPendingDeals.filter((deal) => deal.approverId === currentUserId);
-  const pendingExpenses =
-    role === "admin"
-      ? allPendingExpenses
-      : allPendingExpenses.filter(
-          (expense) => expense.approverId === currentUserId,
-        );
-  const submittedDeals =
-    role === "admin"
-      ? []
-      : allPendingDeals.filter((deal) => deal.submittedBy === currentUserId);
-  const submittedExpenses =
-    role === "admin"
-      ? []
-      : allPendingExpenses.filter(
-          (expense) => expense.submittedBy === currentUserId,
-        );
-  const rejectionMessages =
-    role === "admin"
-      ? []
-      : allRejectionMessages.filter((m) => m.toManagerId === currentUserId);
-  const unreadRejectionCount = rejectionMessages.filter(
-    (m) => !m.readAt,
-  ).length;
+  const onApprove = (id: string) => approve(id);
+  const onReject = (id: string) => {
+    const reason = typeof window !== "undefined" ? window.prompt("Reason for rejection (optional):") || "" : "";
+    reject({ id, rejectionReason: reason });
+  };
+
+  const pending = data.filter((a) => a.status === "pending");
+  const resolved = data.filter((a) => a.status !== "pending");
+
+  const dealApprovals = pending.filter((a) => a.kind === "deal");
+  const expenseApprovals = pending.filter((a) => a.kind === "expense");
 
   return (
     <>
@@ -217,25 +94,57 @@ export default function ApprovalsView() {
           <p className="eyebrow">Cowshed Creators Portal</p>
           <h1>Approvals</h1>
         </div>
-        <div className="asof">
-          {role === "admin"
-            ? "Review pending deals and expenses"
-            : "Review items waiting for your approval"}
-        </div>
+        <div className="asof">Review pending deals and expenses</div>
       </div>
+
+      <section className="section soft-section">
+        <div className="section-head">
+          <h2>Submit for approval</h2>
+        </div>
+        <div className="section-body">
+          <form className="form-grid" onSubmit={handleSubmit}>
+            <div className="field">
+              <label htmlFor="apKind">Type</label>
+              <select id="apKind" value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value as "deal" | "expense" })}>
+                <option value="deal">Deal</option>
+                <option value="expense">Expense</option>
+              </select>
+            </div>
+            <div className="field">
+              <label htmlFor="apTitle">Title</label>
+              <input id="apTitle" required value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="What needs approval?" />
+            </div>
+            <div className="field">
+              <label htmlFor="apAmount">Amount</label>
+              <input id="apAmount" type="number" min="0" step="0.01" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} placeholder="0.00" />
+            </div>
+            <div className="field">
+              <label htmlFor="apMonth">Month</label>
+              <select id="apMonth" value={form.monthIndex} onChange={(e) => setForm({ ...form, monthIndex: Number(e.target.value) })}>
+                {months.map((m, i) => (
+                  <option key={m} value={i}>{m}</option>
+                ))}
+              </select>
+            </div>
+            <div className="field wide">
+              <label htmlFor="apNote">Note</label>
+              <input id="apNote" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} placeholder="Details for the approver" />
+            </div>
+            <button className="primary wide" type="submit">Submit for approval</button>
+          </form>
+        </div>
+      </section>
 
       <section className="section">
         <div className="section-head">
           <h2>Pending deals</h2>
-          <span className="pill pipeline">{pendingDeals.length} pending</span>
+          <span className="pill pipeline">{dealApprovals.length} pending</span>
         </div>
         <div className="section-body manager-list">
-          {pendingDeals.length ? (
-            pendingDeals.map((deal) => (
-              <PendingDealCard key={deal.id} deal={deal} />
-            ))
+          {dealApprovals.length ? (
+            dealApprovals.map((item) => <ApprovalCard key={item._id} item={item} onApprove={onApprove} onReject={onReject} />)
           ) : (
-            <div className="notice">No deals waiting for approval.</div>
+            <div className="notice">{isLoading ? "Loading…" : "No deals waiting for approval."}</div>
           )}
         </div>
       </section>
@@ -243,95 +152,37 @@ export default function ApprovalsView() {
       <section className="section">
         <div className="section-head">
           <h2>Pending expenses</h2>
-          <span className="pill pipeline">{pendingExpenses.length} pending</span>
+          <span className="pill pipeline">{expenseApprovals.length} pending</span>
         </div>
         <div className="section-body manager-list">
-          {pendingExpenses.length ? (
-            pendingExpenses.map((expense) => (
-              <PendingExpenseCard key={expense.id} expense={expense} />
-            ))
+          {expenseApprovals.length ? (
+            expenseApprovals.map((item) => <ApprovalCard key={item._id} item={item} onApprove={onApprove} onReject={onReject} />)
           ) : (
             <div className="notice">No expenses waiting for approval.</div>
           )}
         </div>
       </section>
 
-      {role !== "admin" ? (
-        <>
-          <section className="section soft-section">
-            <div className="section-head">
-              <h2>Submitted by me</h2>
-              <span className="pill pipeline">
-                {submittedDeals.length + submittedExpenses.length} waiting
-              </span>
-            </div>
-            <div className="section-body manager-list">
-              {submittedDeals.length ? (
-                submittedDeals.map((deal) => (
-                  <PendingDealCard
-                    key={deal.id}
-                    deal={deal}
-                    allowAction={false}
-                  />
-                ))
-              ) : (
-                <div className="notice">
-                  No submitted deals are waiting for approval.
-                </div>
-              )}
-              {submittedExpenses.length
-                ? submittedExpenses.map((expense) => (
-                    <PendingExpenseCard
-                      key={expense.id}
-                      expense={expense}
-                      allowAction={false}
-                    />
-                  ))
-                : null}
-            </div>
-          </section>
-
-          <section className="section soft-section">
-            <div className="section-head">
-              <h2>Rejection messages</h2>
-              <span className="pill pipeline">{unreadRejectionCount} new</span>
-            </div>
-            <div className="section-body manager-list">
-              {rejectionMessages.length ? (
-                rejectionMessages.map((message) => (
-                  <article
-                    key={message.id}
-                    className={`deal rejection-message ${
-                      message.readAt ? "" : "unread"
-                    }`}
-                  >
-                    <div className="deal-line">
-                      <strong>{message.subject}</strong>
-                      <span>{message.readAt ? "Seen" : "New"}</span>
-                    </div>
-                    <div className="deal-line muted">
-                      <span>Message</span>
-                      <span>{message.body}</span>
-                    </div>
-                    <div className="deal-actions">
-                      {message.crmDealId ? (
-                        <button className="primary" type="button">
-                          See deal
-                        </button>
-                      ) : null}
-                      <button className="secondary" type="button">
-                        Dismiss
-                      </button>
-                    </div>
-                  </article>
-                ))
-              ) : (
-                <div className="notice">No rejection messages yet.</div>
-              )}
-            </div>
-          </section>
-        </>
-      ) : null}
+      <section className="section soft-section">
+        <div className="section-head">
+          <button className="archive-head archive-toggle" type="button" onClick={() => setShowArchive((o) => !o)} aria-expanded={showArchive}>
+            <h3>History</h3>
+            <span>
+              <span className="pill">{resolved.length} resolved</span>
+              <strong>{showArchive ? "Hide" : "Show"}</strong>
+            </span>
+          </button>
+        </div>
+        {showArchive ? (
+          <div className="section-body manager-list">
+            {resolved.length ? (
+              resolved.map((item) => <ApprovalCard key={item._id} item={item} onApprove={onApprove} onReject={onReject} />)
+            ) : (
+              <div className="notice">No resolved approvals yet.</div>
+            )}
+          </div>
+        ) : null}
+      </section>
     </>
   );
 }
