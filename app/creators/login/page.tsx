@@ -9,22 +9,13 @@ import { loginCreators, resetPortal } from "@/redux/features/session/sessionSlic
 import { creatorViewsByRole } from "@/config/navigation";
 import { useLoginMutation } from "@/redux/api/authApi";
 
-// A few seeded demo logins so the app is usable out of the box.
-const demoAccounts = [
-  { name: "Admin", email: "admin@cowshed.test" },
-  { name: "Finance", email: "finance@cowshed.test" },
-  { name: "Amelia (Manager)", email: "amelia@cowshed.test" },
-  { name: "Production", email: "production@cowshed.test" },
-];
-const DEMO_PASSWORD = "cowshed";
-
 export default function CreatorsLoginPage() {
   const router = useRouter();
   const dispatch = useDispatch();
   const [login, { isLoading }] = useLoginMutation();
 
-  const [email, setEmail] = useState("admin@cowshed.test");
-  const [password, setPassword] = useState(DEMO_PASSWORD);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -52,26 +43,6 @@ export default function CreatorsLoginPage() {
             <Image className="login-logo" src="/cowshed-creators-logo.png" alt="Cowshed Creators" width={360} height={120} priority />
             <h1>Sign in</h1>
             <p>Role-based workspace for live P&amp;L, pipeline, overheads, manager rosters, and deal submissions.</p>
-          </div>
-          <div className="login-demo">
-            <p className="eyebrow">Demo accounts</p>
-            <span>Password for all: <code>{DEMO_PASSWORD}</code></span>
-            <ul>
-              {demoAccounts.map((a) => (
-                <li key={a.email}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setEmail(a.email);
-                      setPassword(DEMO_PASSWORD);
-                      setError(null);
-                    }}
-                  >
-                    {a.name} — {a.email}
-                  </button>
-                </li>
-              ))}
-            </ul>
           </div>
         </div>
         <form className="login-form" onSubmit={handleSubmit}>

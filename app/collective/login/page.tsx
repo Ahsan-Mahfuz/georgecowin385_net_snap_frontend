@@ -8,21 +8,13 @@ import { useDispatch } from "react-redux";
 import { loginCollective, resetPortal } from "@/redux/features/session/sessionSlice";
 import { useLoginMutation } from "@/redux/api/authApi";
 
-const demoAccounts = [
-  { name: "Collective Admin", email: "admin@cowshedcollective.test" },
-  { name: "George (Sales)", email: "george@cowshedcollective.test" },
-  { name: "Mia (Sales)", email: "mia@cowshedcollective.test" },
-  { name: "James (Sales)", email: "james@cowshedcollective.test" },
-];
-const DEMO_PASSWORD = "cowshed";
-
 export default function CollectiveLoginPage() {
   const router = useRouter();
   const dispatch = useDispatch();
   const [login, { isLoading }] = useLoginMutation();
 
-  const [email, setEmail] = useState("admin@cowshedcollective.test");
-  const [password, setPassword] = useState(DEMO_PASSWORD);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -49,26 +41,6 @@ export default function CollectiveLoginPage() {
             <Image className="login-logo collective-login-logo" src="/cowshed-collective-logo.png" alt="Cowshed Collective" width={360} height={120} priority />
             <h1>Sales CRM</h1>
             <p>A separate sales workspace with its own CRM, payment schedule and simulated Collective Xero status.</p>
-          </div>
-          <div className="login-demo">
-            <p className="eyebrow">Demo accounts</p>
-            <span>Password for all: <code>{DEMO_PASSWORD}</code></span>
-            <ul>
-              {demoAccounts.map((a) => (
-                <li key={a.email}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setEmail(a.email);
-                      setPassword(DEMO_PASSWORD);
-                      setError(null);
-                    }}
-                  >
-                    {a.name} — {a.email}
-                  </button>
-                </li>
-              ))}
-            </ul>
           </div>
         </div>
         <form className="login-form" onSubmit={handleSubmit}>

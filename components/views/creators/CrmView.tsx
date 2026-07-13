@@ -1,6 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useSelector } from "react-redux";
+import { RootState } from "@/redux/store";
 import { money, sum, stageClass } from "@/lib/format";
 import { crmStages } from "@/lib/mock";
 import { useCreatorsTeam } from "@/hooks/useCreatorsTeam";
@@ -12,9 +14,10 @@ import type { ApiTalent } from "@/redux/api/types";
 const manualCrmStages = crmStages.filter((stage) => stage !== "Paid");
 
 export default function CrmView() {
+  const year = useSelector((s: RootState) => s.year.selectedYear);
   const { managers } = useCreatorsTeam();
   const { data: talentData = [] } = useGetTalentsQuery();
-  const { data: dealData = [] } = useGetDealsQuery();
+  const { data: dealData = [] } = useGetDealsQuery({ year: String(year) });
   const [createDeal, { isLoading: creating }] = useCreateDealMutation();
 
   const deals = useMemo(() => dealData.map(toDeal), [dealData]);
@@ -49,6 +52,7 @@ export default function CrmView() {
       stage: form.stage,
       campaignName: form.campaignName,
       monthValues,
+      year,
     });
     setForm({ ...form, talentName: "", campaignName: "", amount: "" });
     setAddOpen(false);

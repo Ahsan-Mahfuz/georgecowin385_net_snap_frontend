@@ -1,6 +1,8 @@
 "use client";
 
-import { months, money, sum } from "@/lib/format";
+import { useSelector } from "react-redux";
+import { RootState } from "@/redux/store";
+import { monthLabels, money, sum } from "@/lib/format";
 import { Deal } from "@/lib/mock";
 import { dealRevenue } from "@/lib/pl";
 import { useCreatorsTeam } from "@/hooks/useCreatorsTeam";
@@ -19,7 +21,7 @@ function quarterTotals(values: number[]): number[] {
   ];
 }
 
-function MatrixTable({ rows }: { rows: CommissionRow[] }) {
+function MatrixTable({ rows, months }: { rows: CommissionRow[]; months: string[] }) {
   return (
     <table>
       <thead>
@@ -47,8 +49,10 @@ function MatrixTable({ rows }: { rows: CommissionRow[] }) {
 }
 
 export default function CommissionView() {
+  const year = useSelector((s: RootState) => s.year.selectedYear);
+  const months = monthLabels(year);
   const { managers } = useCreatorsTeam();
-  const { data: dealData = [] } = useGetDealsQuery();
+  const { data: dealData = [] } = useGetDealsQuery({ year: String(year) });
   const { data: settings } = useGetSettingsQuery();
   const deals: Deal[] = dealData.map(toDeal);
 
@@ -113,7 +117,7 @@ export default function CommissionView() {
                   </div>
                 </div>
                 <div className="table-wrap">
-                  <MatrixTable rows={rows} />
+                  <MatrixTable rows={rows} months={months} />
                 </div>
                 <div className="quarter-grid">
                   {["Q1", "Q2", "Q3", "Q4"].map((quarter, index) => (

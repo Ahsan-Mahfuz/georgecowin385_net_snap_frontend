@@ -212,6 +212,193 @@ img {
   color: #ff9f9f;
 }
 
+.year-switcher {
+  position: relative;
+  display: grid;
+  gap: 7px;
+  margin-top: 12px;
+}
+
+.year-switcher-label {
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 10.5px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.year-switcher-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.07);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.year-switcher-trigger:hover {
+  background: rgba(255, 255, 255, 0.11);
+  border-color: rgba(255, 255, 255, 0.28);
+}
+
+.year-switcher.open .year-switcher-trigger {
+  border-color: #8ee0ba;
+  background: rgba(142, 224, 186, 0.12);
+}
+
+.year-switcher-caret {
+  width: 12px;
+  height: 8px;
+  color: rgba(255, 255, 255, 0.7);
+  transition: transform 0.18s ease;
+}
+
+.year-switcher.open .year-switcher-caret {
+  transform: rotate(180deg);
+  color: #8ee0ba;
+}
+
+.year-switcher-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 40;
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  display: grid;
+  gap: 2px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 12px;
+  background: #1c2622;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
+  animation: year-switcher-pop 0.14s ease;
+}
+
+@keyframes year-switcher-pop {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.year-switcher-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 9px 11px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 14px;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.year-switcher-option:hover {
+  background: rgba(255, 255, 255, 0.09);
+  color: #fff;
+}
+
+.year-switcher-option.selected {
+  background: rgba(142, 224, 186, 0.16);
+  color: #8ee0ba;
+}
+
+.year-switcher-check {
+  width: 14px;
+  height: 14px;
+  color: #8ee0ba;
+}
+
+/* Collective portal (light sidebar) variant */
+.collective-sidebar .year-switcher-label {
+  color: var(--muted);
+}
+
+.collective-sidebar .year-switcher-trigger {
+  border-color: var(--line);
+  background: #ffffff;
+  color: var(--ink, #111);
+}
+
+.collective-sidebar .year-switcher-trigger:hover {
+  background: #f3f5f4;
+}
+
+.collective-sidebar .year-switcher.open .year-switcher-trigger {
+  border-color: var(--green);
+  background: #f0faf4;
+}
+
+.collective-sidebar .year-switcher-caret {
+  color: var(--muted);
+}
+
+.collective-sidebar .year-switcher.open .year-switcher-caret {
+  color: var(--green);
+}
+
+.collective-sidebar .year-switcher-menu {
+  border-color: var(--line);
+  background: #ffffff;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.12);
+}
+
+.collective-sidebar .year-switcher-option {
+  color: var(--ink, #333);
+}
+
+.collective-sidebar .year-switcher-option:hover {
+  background: #f3f5f4;
+  color: #111;
+}
+
+.collective-sidebar .year-switcher-option.selected {
+  background: #eafaf1;
+  color: var(--green);
+}
+
+.collective-sidebar .year-switcher-check {
+  color: var(--green);
+}
+
+.cell-input {
+  width: 96px;
+}
+
+.input-suffix {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.input-suffix .table-input {
+  width: 64px;
+}
+
+.input-suffix span {
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.save-hint {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
 .nav {
   display: grid;
   gap: 4px;

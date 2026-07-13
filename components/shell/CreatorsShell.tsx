@@ -8,6 +8,7 @@ import { useDispatch, useSelector } from "react-redux";
 import { RootState } from "@/redux/store";
 import { logoutCreators, resetPortal } from "@/redux/features/session/sessionSlice";
 import { creatorViewsByRole } from "@/config/navigation";
+import { YearSwitcher } from "./YearSwitcher";
 import { roleLabel, type EmailLead } from "@/lib/mock";
 import { money, months, currentMonthIndex } from "@/lib/format";
 import { dealRevenue } from "@/lib/pl";
@@ -29,6 +30,7 @@ export function CreatorsShell({ children }: { children: React.ReactNode }) {
   const dispatch = useDispatch();
   const user = useSelector((s: RootState) => s.session.user);
   const hydrated = useSelector((s: RootState) => s.session.hydrated);
+  const selectedYear = useSelector((s: RootState) => s.year.selectedYear);
   const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
@@ -110,20 +112,23 @@ export function CreatorsShell({ children }: { children: React.ReactNode }) {
               <strong>{money(confirmed)}</strong>
             </div>
           </div>
+          <YearSwitcher />
         </div>
         <nav className="nav">
           {views.map((view) => {
             const count = actionCountForView(view.id, leads);
+            // The P&L link carries the selected financial year so it stays in sync.
+            const label = view.id === "pl-live" ? `P&L ${selectedYear}` : view.label;
             return (
               <Link
                 key={view.id}
                 href={`/creators/${view.id}`}
                 className={activeView === view.id ? "active" : ""}
-                aria-label={`Open ${view.label}`}
+                aria-label={`Open ${label}`}
               >
                 <span className="nav-handle" aria-hidden="true">::</span>
                 <span className="nav-text">
-                  <span dangerouslySetInnerHTML={{ __html: view.label }} />
+                  <span dangerouslySetInnerHTML={{ __html: label }} />
                   {count ? <span className="nav-badge">{count}</span> : null}
                 </span>
               </Link>

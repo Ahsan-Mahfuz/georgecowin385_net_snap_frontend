@@ -1,7 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { money, sum, months } from "@/lib/format";
+import { useSelector } from "react-redux";
+import { RootState } from "@/redux/store";
+import { money, sum, monthLabels } from "@/lib/format";
 import { Deal } from "@/lib/mock";
 import { scopedDeals } from "@/lib/pl";
 import { useCreatorsTeam } from "@/hooks/useCreatorsTeam";
@@ -20,7 +22,7 @@ interface TalentRow {
   deals: Deal[];
 }
 
-function DealCards({ deals }: { deals: Deal[] }) {
+function DealCards({ deals, months }: { deals: Deal[]; months: string[] }) {
   if (!deals.length) return <div className="notice">No deals in this view yet.</div>;
   return (
     <>
@@ -44,8 +46,10 @@ function DealCards({ deals }: { deals: Deal[] }) {
 }
 
 export default function LeaderboardView() {
+  const year = useSelector((s: RootState) => s.year.selectedYear);
+  const months = monthLabels(year);
   const { managers, users } = useCreatorsTeam();
-  const { data: dealData = [] } = useGetDealsQuery();
+  const { data: dealData = [] } = useGetDealsQuery({ year: String(year) });
   const { data: talentData = [] } = useGetTalentsQuery();
   const deals = useMemo(() => dealData.map(toDeal), [dealData]);
 
@@ -138,7 +142,7 @@ export default function LeaderboardView() {
             <h2>{selected ? selected.talentName : "Talent"} deals</h2>
           </div>
           <div className="section-body manager-list">
-            {selected ? <DealCards deals={selected.deals} /> : <div className="notice">No talent to show yet.</div>}
+            {selected ? <DealCards deals={selected.deals} months={months} /> : <div className="notice">No talent to show yet.</div>}
           </div>
         </section>
       </div>

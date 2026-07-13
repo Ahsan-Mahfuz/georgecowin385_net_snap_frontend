@@ -1,9 +1,29 @@
 // Formatting helpers mirrored from the prototype (app.js).
 
-export const months = [
-  "Jan 26", "Feb 26", "Mar 26", "Apr 26", "May 26", "Jun 26",
-  "Jul 26", "Aug 26", "Sep 26", "Oct 26", "Nov 26", "Dec 26",
+const MONTH_ABBR = [
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
 ];
+
+// The first year the portal has data for. Year filter runs from here forward.
+export const BASE_YEAR = 2025;
+
+// Month column labels for a given calendar year, e.g. monthLabels(2027) → "Jan 27"…"Dec 27".
+export function monthLabels(year: number): string[] {
+  const yy = String(year % 100).padStart(2, "0");
+  return MONTH_ABBR.map((m) => `${m} ${yy}`);
+}
+
+// Selectable years: BASE_YEAR up to the current calendar year (no future years).
+export function availableYears(): number[] {
+  const end = Math.max(new Date().getFullYear(), BASE_YEAR);
+  const years: number[] = [];
+  for (let y = BASE_YEAR; y <= end; y++) years.push(y);
+  return years;
+}
+
+// Kept for backward compatibility — the fixed 2026 labels used by views not yet year-aware.
+export const months = monthLabels(2026);
 
 export const usdToGbpRate = 0.78;
 

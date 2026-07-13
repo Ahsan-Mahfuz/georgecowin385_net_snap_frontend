@@ -1,7 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { months, money, sum, usdToGbpRate, currencyMoney } from "@/lib/format";
+import { useSelector } from "react-redux";
+import { RootState } from "@/redux/store";
+import { monthLabels, money, sum, usdToGbpRate, currencyMoney } from "@/lib/format";
 import { paymentTerms, type Deal } from "@/lib/mock";
 import { useCreatorsTeam } from "@/hooks/useCreatorsTeam";
 import { useGetDealsQuery } from "@/redux/api/dealApi";
@@ -9,6 +11,10 @@ import { toDeal } from "@/lib/adapters";
 
 // Set by the component so the module-level table helper can resolve names.
 let liveUsers: { id: string; name: string }[] = [];
+// The selected financial year and its month labels, set by the component so the
+// module-level date/label helpers below stay in sync with the year picker.
+let cfYear = 2026;
+let cfMonths: string[] = monthLabels(2026);
 
 // The CRM deal shape the prototype's cashflow view reads. On first load the
 // prototype's state.crmDeals collection is empty, so the derived tables render
@@ -83,12 +89,12 @@ function crmDueMonthIndex(deal: CrmDeal): number {
 
 function crmDueMonthLabel(deal: CrmDeal): string {
   const dueIndex = crmDueMonthIndex(deal);
-  return months[dueIndex] || "After Dec 26";
+  return cfMonths[dueIndex] || `After Dec ${String(cfYear % 100).padStart(2, "0")}`;
 }
 
 function crmDueDate(deal: CrmDeal): string {
   if (deal.xeroDueDate) return deal.xeroDueDate;
-  const base = new Date(2026, signedMonthIndex(deal), 1);
+  const base = new Date(cfYear, signedMonthIndex(deal), 1);
   base.setDate(base.getDate() + crmPaymentDays(deal));
   return base.toISOString().slice(0, 10);
 }
@@ -128,7 +134,7 @@ function CashflowDealsTable({ deals }: { deals: CrmDeal[] }) {
               <td>{deal.company}</td>
               <td>{deal.campaignName || "-"}</td>
               <td>{deal.stage}</td>
-              <td>{months[signedMonthIndex(deal)]}</td>
+              <td>{cfMonths[signedMonthIndex(deal)]}</td>
               <td>{crmPaymentLabel(deal)}</td>
               <td>{displayDate(crmDueDate(deal))}</td>
               <td>{dealMoney(deal)}</td>
@@ -145,6 +151,13 @@ function CashflowDealsTable({ deals }: { deals: CrmDeal[] }) {
 }
 
 export default function CashflowView() {
+  const year = useSelector((s: RootState) => s.year.selectedYear);
+  const months = monthLabels(year);
+  const afterYearLabel = `After Dec ${String(year % 100).padStart(2, "0")}`;
+  // Keep the module-level helpers in sync with the selected year.
+  cfYear = year;
+  cfMonths = months;
+
   const [selectedManagerId, setSelectedManagerId] = useState<string>("all");
   const [selectedMonthIndex, setSelectedMonthIndex] = useState<number | null>(null);
 
@@ -152,7 +165,7 @@ export default function CashflowView() {
   const { managers: accessibleManagers, users } = useCreatorsTeam();
   liveUsers = users;
 
-  const { data: dealData = [] } = useGetDealsQuery();
+  const { data: dealData = [] } = useGetDealsQuery({ year: String(year) });
   // Confirmed deals with scheduled money feed the cashflow payment schedule.
   const crmDeals: CrmDeal[] = dealData
     .map(toDeal)
@@ -222,7 +235,7 @@ export default function CashflowView() {
                 {months.map((month) => (
                   <th key={month}>{month}</th>
                 ))}
-                <th>After Dec 26</th>
+                <th>{afterYearLabel}</th>
                 <th>Total</th>
               </tr>
             </thead>

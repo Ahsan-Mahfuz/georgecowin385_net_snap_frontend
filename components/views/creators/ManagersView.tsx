@@ -1,22 +1,37 @@
 "use client";
 
+import { useState } from "react";
+import { useSelector } from "react-redux";
+import { RootState } from "@/redux/store";
 import { months, money, sum } from "@/lib/format";
 import { roleLabel, Profile, Deal } from "@/lib/mock";
 import { dealRevenue } from "@/lib/pl";
 import { useCreatorsTeam } from "@/hooks/useCreatorsTeam";
 import { useGetDealsQuery } from "@/redux/api/dealApi";
-import { useGetSettingsQuery } from "@/redux/api/settingsApi";
+import { useGetSettingsQuery, useUpdateSettingsMutation } from "@/redux/api/settingsApi";
 import { toDeal } from "@/lib/adapters";
 
 export default function ManagersView() {
   const canAdminister = true;
+  const year = useSelector((s: RootState) => s.year.selectedYear);
   const { users } = useCreatorsTeam();
-  const { data: dealData = [] } = useGetDealsQuery();
+  const { data: dealData = [] } = useGetDealsQuery({ year: String(year) });
   const { data: settings } = useGetSettingsQuery();
+  const [updateSettings, { isLoading: saving }] = useUpdateSettingsMutation();
   const deals: Deal[] = dealData.map(toDeal);
 
-  const managerSalary = (id: string) => Number(settings?.managerSalaries?.[id] ?? 0);
-  const managerCommissionRate = (id: string) => Number(settings?.commissionRates?.[id] ?? 0);
+  // Unsaved edits to salary / commission rate, keyed by manager id.
+  const [salaryDraft, setSalaryDraft] = useState<Record<string, string>>({});
+  const [rateDraft, setRateDraft] = useState<Record<string, string>>({});
+
+  const savedSalary = (id: string) => Number(settings?.managerSalaries?.[id] ?? 0);
+  const savedRate = (id: string) => Number(settings?.commissionRates?.[id] ?? 0);
+  // Effective values use the draft if the admin has typed one, else the saved value.
+  const managerSalary = (id: string) =>
+    salaryDraft[id] !== undefined ? Number(salaryDraft[id] || 0) : savedSalary(id);
+  const managerCommissionRate = (id: string) =>
+    rateDraft[id] !== undefined ? Number(rateDraft[id] || 0) : savedRate(id);
+
   const monthlyManagerRevenue = (id: string) => dealRevenue(deals, "live", id);
   const monthlyManagerCommission = (id: string) => {
     const threshold = managerSalary(id) * 5;
@@ -26,6 +41,22 @@ export default function ManagersView() {
   };
 
   const activeStaff: Profile[] = users.filter((user) => user.role !== "admin");
+  const hasChanges = Object.keys(salaryDraft).length > 0 || Object.keys(rateDraft).length > 0;
+
+  const handleSave = async () => {
+    const managerSalaries: Record<string, number> = {};
+    const commissionRates: Record<string, number> = {};
+    Object.entries(salaryDraft).forEach(([id, v]) => {
+      managerSalaries[id] = Number(v || 0);
+    });
+    Object.entries(rateDraft).forEach(([id, v]) => {
+      commissionRates[id] = Number(v || 0);
+    });
+    await updateSettings({ managerSalaries, commissionRates }).unwrap();
+    setSalaryDraft({});
+    setRateDraft({});
+  };
+
   const noop = () => {};
 
   return (
@@ -40,11 +71,23 @@ export default function ManagersView() {
         </div>
       </div>
 
-      <div className="layout">
-        <section className="section">
+      <section className="section">
           <div className="section-head">
             <h2>Team overview</h2>
-            {canAdminister ? <span className="pill admin">Admin + Operations</span> : null}
+            <div className="section-actions">
+              {canAdminister ? <span className="pill admin">Admin + Operations</span> : null}
+              {canAdminister && saving ? (
+                <button className="primary" type="button" disabled>
+                  Saving…
+                </button>
+              ) : canAdminister && hasChanges ? (
+                <button className="primary" type="button" onClick={handleSave}>
+                  Save changes
+                </button>
+              ) : canAdminister ? (
+                <span className="save-hint">All changes saved</span>
+              ) : null}
+            </div>
           </div>
           <div className="table-wrap">
             <table>
@@ -70,8 +113,40 @@ export default function ManagersView() {
                         <td>{member.name}</td>
                         <td>{roleLabel(member.role)}</td>
                         <td>{member.email || "-"}</td>
-                        <td>{isManager ? money(managerSalary(member.id)) : "-"}</td>
-                        <td>{isManager ? `${managerCommissionRate(member.id)}%` : "-"}</td>
+                        <td>
+                          {isManager ? (
+                            <input
+                              className="table-input cell-input"
+                              type="number"
+                              min="0"
+                              step="1"
+                              aria-label={`${member.name} monthly salary`}
+                              value={salaryDraft[member.id] !== undefined ? salaryDraft[member.id] : String(savedSalary(member.id))}
+                              onChange={(e) => setSalaryDraft({ ...salaryDraft, [member.id]: e.target.value })}
+                            />
+                          ) : (
+                            "-"
+                          )}
+                        </td>
+                        <td>
+                          {isManager ? (
+                            <div className="input-suffix">
+                              <input
+                                className="table-input"
+                                type="number"
+                                min="0"
+                                max="100"
+                                step="0.1"
+                                aria-label={`${member.name} commission rate percent`}
+                                value={rateDraft[member.id] !== undefined ? rateDraft[member.id] : String(savedRate(member.id))}
+                                onChange={(e) => setRateDraft({ ...rateDraft, [member.id]: e.target.value })}
+                              />
+                              <span>%</span>
+                            </div>
+                          ) : (
+                            "-"
+                          )}
+                        </td>
                         <td>{isManager ? money(sum(monthlyManagerRevenue(member.id))) : "-"}</td>
                         <td>{isManager ? money(sum(monthlyManagerCommission(member.id))) : "-"}</td>
                         <td>{isManager ? deals.filter((d) => d.managerId === member.id).length : "-"}</td>
@@ -95,8 +170,7 @@ export default function ManagersView() {
               </tbody>
             </table>
           </div>
-        </section>
-      </div>
+      </section>
     </>
   );
 }

@@ -39,6 +39,7 @@ export interface ApiDeal {
   stage?: string;
   monthValues: number[];
   costRate: number;
+  year?: number;
   contactEmail?: string;
   paymentTerm: string;
   customPaymentDays: number;

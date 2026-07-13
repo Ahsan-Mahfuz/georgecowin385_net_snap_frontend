@@ -1,7 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { months, money, sum } from "@/lib/format";
+import { useSelector } from "react-redux";
+import { RootState } from "@/redux/store";
+import { monthLabels, money, sum } from "@/lib/format";
 import { type Profile } from "@/lib/mock";
 import { plModel, dealRevenue, scopedDeals, type PlMode } from "@/lib/pl";
 import { useCreatorsTeam } from "@/hooks/useCreatorsTeam";
@@ -40,8 +42,10 @@ function currencyInput(value: number): string {
 }
 
 export default function PlLiveView() {
+  const year = useSelector((s: RootState) => s.year.selectedYear);
+  const months = monthLabels(year);
   const { managers } = useCreatorsTeam();
-  const { data: dealData = [] } = useGetDealsQuery();
+  const { data: dealData = [] } = useGetDealsQuery({ year: String(year) });
   const { data: overheadData = [] } = useGetOverheadsQuery();
   const { data: settings } = useGetSettingsQuery();
   const { data: talentData = [] } = useGetTalentsQuery();
@@ -123,7 +127,7 @@ export default function PlLiveView() {
       <div className="topbar">
         <div>
           <p className="eyebrow">Cowshed Creators Portal</p>
-          <h1>P&amp;L 2026</h1>
+          <h1>P&amp;L {year}</h1>
         </div>
         <div className="asof">
           {mode === "pipeline"
