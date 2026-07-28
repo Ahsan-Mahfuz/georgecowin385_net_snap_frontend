@@ -40,6 +40,18 @@ export interface ApiDeal {
   monthValues: number[];
   costRate: number;
   year?: number;
+  inboundOrOutbound?: "Inbound" | "Outbound";
+  useUSD?: boolean;
+  paymentTerms?: string;
+  ownTimeDays?: number;
+  companyName?: string;
+  emailAddresses?: string;
+  companyAddress?: string;
+  noPoNumber?: boolean;
+  xeroAccountCode?: string;
+  xeroTaxRate?: string;
+  contractUrl?: string;
+  approvalStatus?: "Pending" | "Approved" | "Rejected";
   contactEmail?: string;
   paymentTerm: string;
   customPaymentDays: number;
@@ -114,6 +126,7 @@ export interface ApiEmailLead {
 export interface ApiExpense {
   _id: string;
   kind: "general" | "talent";
+  category?: string;
   label: string;
   manager?: ApiManagerRef | string;
   talentName?: string;

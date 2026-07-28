@@ -22,6 +22,18 @@ export interface Deal {
   monthValues: number[];
   costRate: number;
   // CRM / cashflow / invoicing
+  inboundOrOutbound?: "Inbound" | "Outbound";
+  useUSD?: boolean;
+  paymentTerms?: string;
+  ownTimeDays?: number;
+  companyName?: string;
+  emailAddresses?: string;
+  companyAddress?: string;
+  noPoNumber?: boolean;
+  xeroAccountCode?: string;
+  xeroTaxRate?: string;
+  contractUrl?: string;
+  approvalStatus?: "Pending" | "Approved" | "Rejected";
   company?: string;
   contactEmail?: string;
   paymentTerm?: string;

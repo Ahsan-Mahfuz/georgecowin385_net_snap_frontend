@@ -102,20 +102,19 @@ img {
   min-height: 100vh;
   display: grid;
   grid-template-columns: 248px minmax(0, 1fr);
+  align-items: start;
 }
 
 .sidebar {
-  position: sticky;
-  top: 0;
-  align-self: start;
-  height: 100vh;
+  min-height: 100vh;
+  height: auto;
   background: #17221f;
   color: #f4f7f1;
   padding: 22px 18px;
   display: flex;
   flex-direction: column;
   gap: 16px;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .brand {
@@ -403,9 +402,7 @@ img {
   display: grid;
   gap: 4px;
   min-height: 0;
-  overflow-y: auto;
-  scrollbar-width: thin;
-  scrollbar-color: transparent transparent;
+  overflow-y: visible;
 }
 
 .nav:hover {
