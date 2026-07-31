@@ -8,7 +8,6 @@ import ReportsView from "./ReportsView";
 import ProductionView from "./ProductionView";
 import ProductionRequestsView from "./ProductionRequestsView";
 import ProductionRatesView from "./ProductionRatesView";
-import CashflowView from "./CashflowView";
 import ManagersView from "./ManagersView";
 import PermissionsView from "./PermissionsView";
 import ApprovalsView from "./ApprovalsView";
@@ -34,7 +33,6 @@ export const creatorRegistry: Record<string, ComponentType> = {
   "production": ProductionView,
   "production-requests": ProductionRequestsView,
   "production-rates": ProductionRatesView,
-  "cashflow": CashflowView,
   "managers": ManagersView,
   "permissions": PermissionsView,
   "approvals": ApprovalsView,

@@ -20,6 +20,15 @@ import { apiErrorMessage, useToast } from "@/components/ui/Toast";
 
 const manualCrmStages = crmStages.filter((stage) => stage !== "Paid");
 
+/** A signed contract (or an explicit "no contract") is required from here on. */
+const CONTRACT_REQUIRED_STAGES = [
+  "Contract Signed",
+  "To Be Invoiced",
+  "Invoiced",
+  "On Next Payment Run",
+  "Paid",
+];
+
 export default function CrmView() {
   const year = useSelector((s: RootState) => s.year.selectedYear);
   const { managers } = useCreatorsTeam();
@@ -37,10 +46,11 @@ export default function CrmView() {
   const [managerFilter, setManagerFilter] = useState("all");
   const [stageFilter, setStageFilter] = useState("all");
   const [addOpen, setAddOpen] = useState(false);
-  // Deal currently open in the detail modal (null = closed).
-  const [detailId, setDetailId] = useState<string | null>(null);
-  // Set when the add panel is reused to edit an existing deal.
+  // Set when the panel is opened against an existing deal rather than a new one.
   const [editingId, setEditingId] = useState<string | null>(null);
+  // Stage column currently hovered during a drag, for the drop highlight.
+  const [dragOverStage, setDragOverStage] = useState<string | null>(null);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
   const [form, setForm] = useState({
     managerId: "",
     talentName: "",
@@ -60,18 +70,25 @@ export default function CrmView() {
     xeroAccountCode: "200",
     xeroTaxRate: "No VAT",
     contractUrl: "",
+    noContract: false,
   });
+
+  // The board is keyed on `stage` alone — the same field the P&L scopes on — so
+  // the two screens can never drift apart.
+  const stageOf = (d: (typeof deals)[number]) => d.stage || "Conversation";
 
   const filtered = deals.filter((d) => {
     if (managerFilter !== "all" && d.managerId !== managerFilter) return false;
-    if (stageFilter !== "all" && (d.status === "Confirmed" ? "Paid" : d.stage || "Conversation") !== stageFilter) return false;
+    if (stageFilter !== "all" && stageOf(d) !== stageFilter) return false;
     return true;
   });
 
-  // Group by the deal's stage (fall back to Conversation).
-  const stageOf = (d: (typeof deals)[number]) => d.stage || (d.status === "Confirmed" ? "Contract Signed" : "Conversation");
   const dealTotal = (d: (typeof deals)[number]) => sum(d.monthValues);
-  const totalVisible = filtered.reduce((t, d) => t + dealTotal(d), 0);
+  // Headline figure matches the P&L Pipeline tab: rejected deals are shown on the
+  // board so they can be fixed, but they are not money anyone is expecting.
+  const totalVisible = filtered
+    .filter((d) => d.approvalStatus !== "Rejected")
+    .reduce((t, d) => t + dealTotal(d), 0);
 
   const emptyForm = {
     managerId: "",
@@ -92,6 +109,7 @@ export default function CrmView() {
     xeroAccountCode: "200",
     xeroTaxRate: "No VAT",
     contractUrl: "",
+    noContract: false,
   };
 
   const openAddPanel = () => {
@@ -122,9 +140,9 @@ export default function CrmView() {
       xeroAccountCode: deal.xeroAccountCode || "200",
       xeroTaxRate: deal.xeroTaxRate || "No VAT",
       contractUrl: deal.contractUrl || "",
+      noContract: Boolean(deal.noContract),
     });
     setEditingId(deal.id);
-    setDetailId(null);
     setAddOpen(true);
   };
 
@@ -147,32 +165,83 @@ export default function CrmView() {
     try {
       await deleteDeal(deal.id).unwrap();
       toast.success("Deal deleted.");
-      setDetailId(null);
+      setAddOpen(false);
+      setEditingId(null);
     } catch (err) {
       toast.error(apiErrorMessage(err, "Could not delete that deal."));
     }
   };
 
-  const detailDeal = detailId ? deals.find((d) => d.id === detailId) || null : null;
+  /**
+   * Client-side mirror of the server stage rules, so a blocked drop explains
+   * itself immediately instead of bouncing off a 400. The server is still the
+   * authority — see assertStageAllowed in deal.service.ts.
+   */
+  const stageBlockReason = (deal: (typeof deals)[number], stage: string): string | null => {
+    if (CONTRACT_REQUIRED_STAGES.includes(stage) && !deal.contractUrl && !deal.noContract) {
+      return `Upload the signed contract, or tick “No contract”, before moving this deal to ${stage}.`;
+    }
+    if (stage === "To Be Invoiced") {
+      const missing: string[] = [];
+      if (!deal.paymentTerms && !deal.paymentTerm) missing.push("Payment terms");
+      if (!deal.campaignName?.trim()) missing.push("Campaign name");
+      if (!deal.emailAddresses?.trim() && !deal.contactEmail?.trim()) missing.push("Email addresses");
+      if (!deal.companyAddress?.trim()) missing.push("Company address");
+      if (!deal.poNumber?.trim() && !deal.noPoNumber) missing.push("PO number (or tick “No PO”)");
+      if (missing.length) return `Add ${missing.join(", ")} before moving this deal to To Be Invoiced.`;
+    }
+    return null;
+  };
+
+  /** Drag and drop a card into another stage column. */
+  const moveDealToStage = async (deal: (typeof deals)[number], stage: string) => {
+    if (!stage || stage === (deal.stage || "Conversation")) return;
+
+    const blocked = stageBlockReason(deal, stage);
+    if (blocked) {
+      toast.error(blocked);
+      openEditPanel(deal); // drop them straight into the form that fixes it
+      return;
+    }
+
+    try {
+      await updateDeal({ id: deal.id, body: { stage } }).unwrap();
+      toast.success(`${deal.talentName} moved to ${stage}.`);
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Could not move that deal."));
+    }
+  };
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.managerId) return toast.error("Choose a talent manager.");
     if (!form.talentName.trim()) return toast.error("Enter a talent name.");
+    // Same gate as drag and drop, checked against what the form is about to save.
+    const blocked = stageBlockReason(
+      {
+        ...(editingId ? deals.find((d) => d.id === editingId) : undefined),
+        contractUrl: form.contractUrl,
+        noContract: form.noContract,
+        paymentTerms: form.paymentTerms,
+        campaignName: form.campaignName,
+        emailAddresses: form.emailAddresses,
+        companyAddress: form.companyAddress,
+        poNumber: form.noPoNumber ? "" : form.poNumber,
+        noPoNumber: form.noPoNumber,
+      } as (typeof deals)[number],
+      form.stage,
+    );
+    if (blocked) return toast.error(blocked);
+
     const amount = Number(form.amount) || 0;
     const monthValues = new Array(12).fill(0);
     monthValues[form.monthIndex] = amount;
-    const status: "Pipeline" | "Confirmed" =
-      form.stage === "Conversation" || form.stage === "Negotiation" || form.stage === "Contract Signed"
-        ? "Pipeline"
-        : "Confirmed";
 
     const payload: Partial<ApiDeal> = {
       manager: form.managerId,
       talentName: form.talentName.trim(),
       inboundOrOutbound: form.inboundOrOutbound,
       stage: form.stage,
-      status,
       monthValues,
       year,
       useUSD: form.useUSD,
@@ -187,6 +256,7 @@ export default function CrmView() {
       xeroAccountCode: form.xeroAccountCode,
       xeroTaxRate: form.xeroTaxRate,
       contractUrl: form.contractUrl,
+      noContract: form.noContract,
       currency: form.useUSD ? "USD" : "GBP",
       company: form.companyName.trim(),
     };
@@ -220,11 +290,15 @@ export default function CrmView() {
       <section className="section">
         <div className="section-head">
           <h2>CRM summary</h2>
-          <span className="pill">{money(totalVisible)}</span>
+          <span className="pill" title="Excludes rejected deals — matches the P&L Pipeline tab">
+            {money(totalVisible)}
+          </span>
         </div>
         <div className="section-body earnings-grid">
           {crmStages.map((stage) => {
-            const stageDeals = filtered.filter((d) => stageOf(d) === stage);
+            const stageDeals = filtered.filter(
+              (d) => stageOf(d) === stage && d.approvalStatus !== "Rejected",
+            );
             return (
               <div className="earning" key={stage}>
                 <span>{stage}</span>
@@ -262,28 +336,74 @@ export default function CrmView() {
           {crmStages.map((stage) => {
             const stageDeals = filtered.filter((d) => stageOf(d) === stage);
             return (
-              <div className={`crm-column ${stageClass(stage)}`} key={stage}>
+              <div
+                className={`crm-column ${stageClass(stage)} ${dragOverStage === stage ? "drag-over" : ""}`}
+                key={stage}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = "move";
+                  if (dragOverStage !== stage) setDragOverStage(stage);
+                }}
+                onDragLeave={(e) => {
+                  // Ignore bubbling from children, only clear when the pointer really leaves.
+                  if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOverStage(null);
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setDragOverStage(null);
+                  setDraggingId(null);
+                  const id = e.dataTransfer.getData("text/plain");
+                  const deal = deals.find((d) => d.id === id);
+                  if (deal) moveDealToStage(deal, stage);
+                }}
+              >
                 <div className="crm-column-head">
                   <span>{stage}</span>
-                  <strong>{money(stageDeals.reduce((t, d) => t + dealTotal(d), 0))}</strong>
+                  <strong>
+                    {money(
+                      stageDeals
+                        .filter((d) => d.approvalStatus !== "Rejected")
+                        .reduce((t, d) => t + dealTotal(d), 0),
+                    )}
+                  </strong>
                 </div>
                 <div className="crm-card-list">
                   {stageDeals.length ? (
                     stageDeals.map((d) => (
-                      <button
-                        className="crm-card"
-                        type="button"
+                      <div
+                        className={`crm-card ${draggingId === d.id ? "is-dragging" : ""}`}
                         key={d.id}
-                        onClick={() => setDetailId(d.id)}
+                        role="button"
+                        tabIndex={0}
+                        draggable
                         aria-label={`Open ${d.talentName} deal`}
+                        onDragStart={(e) => {
+                          e.dataTransfer.setData("text/plain", d.id);
+                          e.dataTransfer.effectAllowed = "move";
+                          setDraggingId(d.id);
+                        }}
+                        onDragEnd={() => { setDraggingId(null); setDragOverStage(null); }}
+                        onClick={() => openEditPanel(d)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            openEditPanel(d);
+                          }
+                        }}
                       >
                         <strong>{d.talentName}</strong>
+                        <span className="crm-card-brand">{d.companyName || d.company || "No brand"}</span>
                         <span>{d.campaignName || "No campaign"} · {money(dealTotal(d))}</span>
                         <small>{managerName(d.managerId)}</small>
-                      </button>
+                        {d.approvalStatus && d.approvalStatus !== "Approved" ? (
+                          <span className={`crm-card-flag ${d.approvalStatus === "Rejected" ? "is-rejected" : ""}`}>
+                            {d.approvalStatus === "Rejected" ? "Rejected" : "Awaiting approval"}
+                          </span>
+                        ) : null}
+                      </div>
                     ))
                   ) : (
-                    <div className="crm-empty">No deals</div>
+                    <div className="crm-empty">Drop a deal here</div>
                   )}
                 </div>
               </div>
@@ -291,47 +411,6 @@ export default function CrmView() {
           })}
         </div>
       </section>
-
-      {detailDeal ? (
-        <div
-          className="crm-detail-overlay"
-          onMouseDown={(e) => { if (e.target === e.currentTarget) setDetailId(null); }}
-        >
-          <section className="section crm-detail-modal" role="dialog" aria-modal="true" aria-label="Deal detail">
-            <button className="crm-detail-close" type="button" aria-label="Close" onClick={() => setDetailId(null)}>×</button>
-            <div className="section-head">
-              <h2>{detailDeal.talentName}</h2>
-              <span className={`pill ${stageClass(stageOf(detailDeal))}`}>{stageOf(detailDeal)}</span>
-            </div>
-            <div className="section-body">
-              <dl className="detail-grid">
-                <div><dt>Campaign</dt><dd>{detailDeal.campaignName || "—"}</dd></div>
-                <div><dt>Company</dt><dd>{detailDeal.companyName || detailDeal.company || "—"}</dd></div>
-                <div><dt>Manager</dt><dd>{managerName(detailDeal.managerId)}</dd></div>
-                <div><dt>Amount</dt><dd>{money(dealTotal(detailDeal))}{detailDeal.useUSD ? " (USD)" : ""}</dd></div>
-                <div><dt>Revenue month</dt><dd>{months[Math.max(0, (detailDeal.monthValues || []).findIndex((v) => Number(v || 0) > 0))] || "—"}</dd></div>
-                <div><dt>Status</dt><dd>{detailDeal.status}</dd></div>
-                <div><dt>Source</dt><dd>{detailDeal.inboundOrOutbound || "—"}</dd></div>
-                <div><dt>Payment terms</dt><dd>{detailDeal.paymentTerms || "—"}</dd></div>
-                <div><dt>PO number</dt><dd>{detailDeal.noPoNumber ? "No PO" : detailDeal.poNumber || "—"}</dd></div>
-                <div><dt>Contact</dt><dd>{detailDeal.emailAddresses || "—"}</dd></div>
-                <div><dt>Xero code</dt><dd>{detailDeal.xeroAccountCode || "—"}</dd></div>
-                <div><dt>Xero tax</dt><dd>{detailDeal.xeroTaxRate || "—"}</dd></div>
-              </dl>
-            </div>
-            <div className="section-body">
-              <div className="row-actions">
-                <button className="primary small" type="button" onClick={() => openEditPanel(detailDeal)}>
-                  Edit deal
-                </button>
-                <button className="secondary danger-button small" type="button" onClick={() => handleDelete(detailDeal)}>
-                  Delete deal
-                </button>
-              </div>
-            </div>
-          </section>
-        </div>
-      ) : null}
 
       {addOpen ? (
         <div className="crm-add-overlay">
@@ -467,12 +546,55 @@ export default function CrmView() {
 
                 <div className="field" style={{ gridColumn: "span 2" }}>
                   <label htmlFor="crmContract">Contract</label>
-                  <input id="crmContract" type="file" onChange={(e) => setForm({ ...form, contractUrl: e.target.files?.[0]?.name || "" })} />
+                  <input
+                    id="crmContract"
+                    type="file"
+                    disabled={form.noContract}
+                    onChange={(e) => setForm({ ...form, contractUrl: e.target.files?.[0]?.name || "" })}
+                  />
+                  {form.contractUrl && !form.noContract ? (
+                    <small className="field-hint">Attached: {form.contractUrl}</small>
+                  ) : null}
+                  <label className="checkbox-line">
+                    <input
+                      type="checkbox"
+                      checked={form.noContract}
+                      onChange={(e) =>
+                        setForm({
+                          ...form,
+                          noContract: e.target.checked,
+                          contractUrl: e.target.checked ? "" : form.contractUrl,
+                        })
+                      }
+                    />
+                    No contract for this deal
+                  </label>
+                  {CONTRACT_REQUIRED_STAGES.includes(form.stage) && !form.contractUrl && !form.noContract ? (
+                    <small className="field-error">
+                      A contract (or the “No contract” tick) is required at {form.stage}.
+                    </small>
+                  ) : null}
                 </div>
 
-                <button className="primary wide" type="submit" style={{ gridColumn: "span 2", marginTop: "10px" }} disabled={creating || updating}>
-                  {creating || updating ? "Saving…" : editingId ? "Save changes" : "Add CRM deal"}
-                </button>
+                <div className="field wide" style={{ gridColumn: "span 2", marginTop: "10px" }}>
+                  <div className="row-actions">
+                    <button className="primary" type="submit" disabled={creating || updating}>
+                      {creating || updating ? "Saving…" : editingId ? "Save changes" : "Add CRM deal"}
+                    </button>
+                    {editingId ? (
+                      <button
+                        className="secondary danger-button"
+                        type="button"
+                        onClick={() => {
+                          const deal = deals.find((d) => d.id === editingId);
+                          if (deal) handleDelete(deal);
+                        }}
+                      >
+                        Delete deal
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
               </form>
             </div>
           </section>

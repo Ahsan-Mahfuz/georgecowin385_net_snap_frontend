@@ -9,6 +9,7 @@ import { useCreatorsTeam } from "@/hooks/useCreatorsTeam";
 import {
   useGetEmailLeadsQuery,
   useCreateEmailLeadMutation,
+  useDelegateEmailLeadMutation,
   useDeleteEmailLeadMutation,
 } from "@/redux/api/emailLeadApi";
 import { useCreateDealMutation } from "@/redux/api/dealApi";
@@ -70,12 +71,15 @@ export default function LeadsWorkspace({
   const { users, managers } = useCreatorsTeam();
   const managerId = user?.role === "manager" ? user.id : undefined;
 
+  // `mine` returns what this manager owns plus anything delegated to them, and
+  // hides what they have handed away.
   const { data = [], isLoading } = useGetEmailLeadsQuery({
     category,
-    ...(managerId ? { manager: managerId } : {}),
+    ...(managerId ? { mine: managerId } : {}),
   });
   const [createLead, { isLoading: creating }] = useCreateEmailLeadMutation();
   const [deleteLead] = useDeleteEmailLeadMutation();
+  const [delegateLead] = useDelegateEmailLeadMutation();
   const [createDeal] = useCreateDealMutation();
   const confirm = useConfirm();
   const toast = useToast();
@@ -89,6 +93,8 @@ export default function LeadsWorkspace({
     .sort((a, b) => new Date(b.receivedAt).getTime() - new Date(a.receivedAt).getTime());
 
   const defaultManager = form.managerId || managerId || managers[0]?.id || "";
+  // Anyone active on the Creators team can pick up a PR or Event request.
+  const teamForDelegation = users.filter((u) => u.id !== user?.id || false);
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -137,6 +143,33 @@ export default function LeadsWorkspace({
       toast.success("Dismissed.");
     } catch (err) {
       toast.error(apiErrorMessage(err, "Could not dismiss that lead."));
+    }
+  };
+
+  // PR and Event requests can be handed to another team member, who then sees
+  // them in their own portal.
+  const handleDelegate = async (lead: EmailLead, targetId: string) => {
+    const target = users.find((u) => u.id === targetId);
+    if (targetId) {
+      const ok = await confirm({
+        tone: "default",
+        title: `Delegate this ${category} request?`,
+        confirmLabel: "Delegate",
+        message: (
+          <>
+            <strong>{lead.subject || "This request"}</strong> moves to{" "}
+            <strong>{target?.name || "that team member"}</strong>&rsquo;s portal and leaves your
+            list. You can take it back at any time.
+          </>
+        ),
+      });
+      if (!ok) return;
+    }
+    try {
+      await delegateLead({ id: lead.id, delegatedTo: targetId }).unwrap();
+      toast.success(targetId ? `Delegated to ${target?.name || "team member"}.` : "Delegation removed.");
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Could not delegate that request."));
     }
   };
 
@@ -357,6 +390,13 @@ export default function LeadsWorkspace({
                       {lead.from || "No sender"} · {displayDate(String(lead.receivedAt))} ·{" "}
                       {managerName(lead.managerId)}
                     </small>
+                    {lead.delegatedToId ? (
+                      <span className="pill admin delegated-pill">
+                        {lead.delegatedToId === user?.id
+                          ? `Delegated to you by ${managerName(lead.delegatedById || lead.managerId)}`
+                          : `Delegated to ${managerName(lead.delegatedToId)}`}
+                      </span>
+                    ) : null}
                   </div>
                 </div>
                 <div className="form-grid compact-action-grid">
@@ -408,7 +448,26 @@ export default function LeadsWorkspace({
                     <button className="primary small" type="button" onClick={() => handleConvert(lead)}>
                       Convert to CRM deal
                     </button>
-                  ) : null}
+                  ) : (
+                    <label className="delegate-control">
+                      <span>Assign to</span>
+                      <select
+                        className="compact-select"
+                        value={lead.delegatedToId || ""}
+                        onChange={(e) => handleDelegate(lead, e.target.value)}
+                        aria-label={`Delegate ${lead.subject || "request"}`}
+                      >
+                        <option value="">Nobody (keep it)</option>
+                        {teamForDelegation
+                          .filter((m) => m.id !== lead.managerId)
+                          .map((m) => (
+                            <option key={m.id} value={m.id}>
+                              {m.name}
+                            </option>
+                          ))}
+                      </select>
+                    </label>
+                  )}
                   <button
                     className="secondary danger-button small"
                     type="button"

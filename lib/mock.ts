@@ -10,6 +10,8 @@ export interface Profile {
   name: string;
   role: Role;
   email: string;
+  /** Who this person reports to — drives line-report visibility on Commission. */
+  lineManagerId?: string;
 }
 
 export interface Deal {
@@ -33,6 +35,7 @@ export interface Deal {
   xeroAccountCode?: string;
   xeroTaxRate?: string;
   contractUrl?: string;
+  noContract?: boolean;
   approvalStatus?: "Pending" | "Approved" | "Rejected";
   company?: string;
   contactEmail?: string;
@@ -56,6 +59,9 @@ export interface OverheadRow {
 export interface EmailLead {
   id: string;
   managerId: string;
+  /** Set when the request has been handed to another team member. */
+  delegatedToId?: string;
+  delegatedById?: string;
   from: string;
   subject: string;
   receivedAt: string;

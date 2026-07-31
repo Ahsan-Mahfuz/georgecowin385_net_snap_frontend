@@ -5,11 +5,42 @@ import { Deal, OverheadRow } from "./mock";
 
 export type PlMode = "live" | "pipeline";
 
+/** Stages that represent committed revenue rather than an open opportunity. */
+export const COMMITTED_STAGES = [
+  "Contract Signed",
+  "To Be Invoiced",
+  "Invoiced",
+  "On Next Payment Run",
+  "Paid",
+];
+
+/**
+ * A deal counts as Live once it has been approved AND reached a committed stage.
+ * Approval is the gate: an approved deal is what lands in the Live P&L and the
+ * manager's commission sheet.
+ */
+export function isLiveDeal(deal: Deal): boolean {
+  if (deal.approvalStatus === "Rejected") return false;
+  if (!COMMITTED_STAGES.includes(deal.stage || "")) return false;
+  // Legacy rows carry no approvalStatus; fall back to the old Confirmed flag so
+  // historic revenue does not vanish from the P&L.
+  if (deal.approvalStatus) return deal.approvalStatus === "Approved";
+  return deal.status === "Confirmed";
+}
+
+/**
+ * Pipeline is everything still in play — every stage including Conversation and
+ * Negotiation — minus anything explicitly rejected. Scoping on stage rather than
+ * the `status` flag is what keeps the CRM board and the P&L in step.
+ */
+export function isPipelineDeal(deal: Deal): boolean {
+  return deal.approvalStatus !== "Rejected";
+}
+
 export function scopedDeals(deals: Deal[], mode: PlMode = "live", managerId: string | null = null): Deal[] {
   return deals.filter((deal) => {
     if (managerId && deal.managerId !== managerId) return false;
-    if (mode === "pipeline") return deal.status === "Confirmed" || deal.status === "Pipeline";
-    return deal.status === "Confirmed";
+    return mode === "pipeline" ? isPipelineDeal(deal) : isLiveDeal(deal);
   });
 }
 

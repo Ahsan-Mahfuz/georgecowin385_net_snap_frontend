@@ -51,7 +51,18 @@ function MatrixTable({ rows, months }: { rows: CommissionRow[]; months: string[]
 export default function CommissionView() {
   const year = useSelector((s: RootState) => s.year.selectedYear);
   const months = monthLabels(year);
-  const { managers } = useCreatorsTeam();
+  const user = useSelector((s: RootState) => s.session.user);
+  const { managers: allManagers } = useCreatorsTeam();
+
+  // A manager only sees their own sheet plus the people who report to them.
+  // Admin / finance / operations keep the full view.
+  const isManager = user?.role === "manager";
+  const managers = isManager
+    ? allManagers.filter((m) => m.id === user?.id || m.lineManagerId === user?.id)
+    : allManagers;
+  const lineReportCount = isManager
+    ? allManagers.filter((m) => m.lineManagerId === user?.id).length
+    : 0;
   const { data: dealData = [] } = useGetDealsQuery({ year: String(year) });
   const { data: settings } = useGetSettingsQuery();
   const deals: Deal[] = dealData.map(toDeal);
@@ -76,7 +87,13 @@ export default function CommissionView() {
           <p className="eyebrow">Cowshed Creators Portal</p>
           <h1>Commission</h1>
         </div>
-        <div className="asof">Monthly commission split by manager</div>
+        <div className="asof">
+          {isManager
+            ? lineReportCount
+              ? `Your sheet and ${lineReportCount} line report${lineReportCount === 1 ? "" : "s"}`
+              : "Your commission sheet"
+            : "Monthly commission split by manager"}
+        </div>
       </div>
 
       <section className="section">
@@ -86,9 +103,12 @@ export default function CommissionView() {
         </div>
         <div className="section-body">
           <div className="notice">
-            Commission unlocks once monthly confirmed revenue is above 5x that manager&apos;s monthly salary,
-            then pays the manager&apos;s commission rate on that month&apos;s revenue. Salary and rate come from
-            Settings.
+            Commission unlocks once monthly approved revenue is above 5x that manager&apos;s monthly
+            salary, then pays the manager&apos;s commission rate on that month&apos;s revenue. Only deals
+            that have been approved count. Salary and rate come from Settings.
+            {isManager
+              ? " You can see your own sheet and anyone who reports to you."
+              : ""}
           </div>
         </div>
       </section>
@@ -97,7 +117,7 @@ export default function CommissionView() {
         {managers.length ? (
           managers.map((manager) => {
             const rows: CommissionRow[] = [
-              { label: "Confirmed revenue", values: monthlyRevenue(manager.id) },
+              { label: "Approved revenue", values: monthlyRevenue(manager.id) },
               { label: "More revenue needed", values: monthlyGap(manager.id) },
               { label: "Commission", values: monthlyOwnCommission(manager.id), total: true },
             ];
@@ -132,7 +152,11 @@ export default function CommissionView() {
           })
         ) : (
           <section className="section soft-section">
-            <div className="notice">No managers yet. Approve manager sign-ups in Permissions to see commission.</div>
+            <div className="notice">
+              {isManager
+                ? "No commission to show yet. Deals count once they are approved."
+                : "No managers yet. Approve manager sign-ups in Permissions to see commission."}
+            </div>
           </section>
         )}
       </div>

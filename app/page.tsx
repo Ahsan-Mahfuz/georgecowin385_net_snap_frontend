@@ -15,7 +15,7 @@ export default function PortalChoicePage() {
           <h1>Cowshed workspace</h1>
           <p>
             Select the business you want to work in. Creators opens the existing talent portal; Collective Sales opens the
-            separate sales CRM and cashflow view.
+            separate sales CRM with its own monthly and quarterly views.
           </p>
         </div>
         <div className="portal-choice-grid">

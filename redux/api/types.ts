@@ -20,6 +20,7 @@ export interface ApiUser {
   role: Role;
   portal: Portal;
   status: AccountStatus;
+  lineManager?: ApiManagerRef | string | null;
 }
 
 export interface ApiManagerRef {
@@ -51,6 +52,7 @@ export interface ApiDeal {
   xeroAccountCode?: string;
   xeroTaxRate?: string;
   contractUrl?: string;
+  noContract?: boolean;
   approvalStatus?: "Pending" | "Approved" | "Rejected";
   contactEmail?: string;
   paymentTerm: string;
@@ -120,6 +122,10 @@ export interface ApiOverhead {
 export interface ApiEmailLead {
   _id: string;
   manager: ApiManagerRef | string;
+  /** Team member the request was handed to; they see it in their own portal. */
+  delegatedTo?: ApiManagerRef | string | null;
+  delegatedBy?: ApiManagerRef | string | null;
+  delegatedAt?: string | null;
   from: string;
   subject: string;
   receivedAt: string;

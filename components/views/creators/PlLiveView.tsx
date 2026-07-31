@@ -65,7 +65,7 @@ export default function PlLiveView() {
 
   const rows: MatrixRow[] = [
     { label: "Target", values: model.target, editable: ROLE === "admin" && mode === "live", editType: "target" },
-    { label: mode === "pipeline" ? "Confirmed + Pipeline + CRM Conversation/Negotiation" : "Confirmed Deals", values: model.actual },
+    { label: mode === "pipeline" ? "All CRM deals (every stage)" : "Approved deals", values: model.actual },
     { label: "Total Variation", values: model.variation, total: true, polarity: true },
     { type: "section", label: "Cost of Sale" },
     { label: "COS", values: model.cos },
@@ -131,7 +131,7 @@ export default function PlLiveView() {
         </div>
         <div className="asof">
           {mode === "pipeline"
-            ? "Confirmed, pipeline, conversation and negotiation deals included"
+            ? "Every CRM stage included — Conversation and Negotiation too"
             : "Confirmed deals only"}
         </div>
       </div>
@@ -155,7 +155,7 @@ export default function PlLiveView() {
         <div className="kpi">
           <span>Net profit</span>
           <strong className={net < 0 ? "negative" : "positive"}>{money(net)}</strong>
-          <small>{mode === "pipeline" ? "Including pipeline" : "Confirmed only"}</small>
+          <small>{mode === "pipeline" ? "Every CRM stage" : "Approved deals only"}</small>
         </div>
       </div>
 

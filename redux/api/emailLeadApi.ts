@@ -12,6 +12,15 @@ export const emailLeadApi = baseApi.injectEndpoints({
       query: (body) => ({ url: "/email-lead", method: "POST", body }),
       invalidatesTags: ["EmailLead"],
     }),
+    // Empty delegatedTo hands the request back to its owner.
+    delegateEmailLead: builder.mutation<ApiEmailLead, { id: string; delegatedTo: string }>({
+      query: ({ id, delegatedTo }) => ({
+        url: `/email-lead/${id}/delegate`,
+        method: "PATCH",
+        body: { delegatedTo },
+      }),
+      invalidatesTags: ["EmailLead"],
+    }),
     deleteEmailLead: builder.mutation<null, string>({
       query: (id) => ({ url: `/email-lead/${id}`, method: "DELETE" }),
       invalidatesTags: ["EmailLead"],
@@ -22,5 +31,6 @@ export const emailLeadApi = baseApi.injectEndpoints({
 export const {
   useGetEmailLeadsQuery,
   useCreateEmailLeadMutation,
+  useDelegateEmailLeadMutation,
   useDeleteEmailLeadMutation,
 } = emailLeadApi;

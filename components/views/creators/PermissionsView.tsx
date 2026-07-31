@@ -9,8 +9,12 @@ import {
   useRejectUserMutation,
   useSetUserStatusMutation,
   useSetUserRoleMutation,
+  useSetUserLineManagerMutation,
 } from "@/redux/api/userApi";
 import { roleLabel, type Profile, type Role } from "@/lib/mock";
+import { refId } from "@/lib/adapters";
+import { useConfirm } from "@/components/ui/ConfirmProvider";
+import { apiErrorMessage, useToast } from "@/components/ui/Toast";
 
 const assignableRoles: Role[] = ["admin", "finance", "operations", "production", "manager"];
 
@@ -38,6 +42,10 @@ export default function PermissionsView() {
   const [rejectUser] = useRejectUserMutation();
   const [setUserStatus] = useSetUserStatusMutation();
   const [setUserRole] = useSetUserRoleMutation();
+  const [setUserLineManager, { isLoading: savingLine }] = useSetUserLineManagerMutation();
+  const [lineForm, setLineForm] = useState({ memberId: "", lineManagerId: "" });
+  const confirm = useConfirm();
+  const toast = useToast();
 
   const pendingAccounts = creatorAccounts.filter((a) => a.status === "pending");
   const activeAndDisabled = creatorAccounts.filter((a) => a.status !== "pending");
@@ -49,18 +57,64 @@ export default function PermissionsView() {
   // Live managers (for the lower routing/delegation placeholder sections).
   const managerUsers: Profile[] = activeAndDisabled
     .filter((a) => a.role === "manager" && a.status === "active")
-    .map((a) => ({ id: a.id, name: a.name, role: a.role, email: a.email }));
+    .map((a) => ({
+      id: a.id,
+      name: a.name,
+      role: a.role,
+      email: a.email,
+      lineManagerId: refId(a.lineManager || undefined) || undefined,
+    }));
   const teamMembers: Profile[] = managerUsers;
   const approvers: Profile[] = managerUsers;
 
-  // Derived rows — all empty on first load.
-  const lineReportRows: { lineManagerId: string; reportManagerId: string }[] = [];
+  // Live reporting lines, read straight off the accounts.
+  const lineReportRows = managerUsers
+    .filter((m) => m.lineManagerId)
+    .map((m) => ({ reportManagerId: m.id, lineManagerId: m.lineManagerId as string }));
   const automaticRows: { lineManagerId: string; reportManagerId: string }[] = [];
   const explicitRows: { delegatorManagerId: string; targetManagerId: string }[] = [];
 
   const managerName = (id: string): string => {
     if (id === "admin") return "Admin";
     return teamMembers.find((user) => user.id === id)?.name || "Unassigned";
+  };
+
+  const handleSetLineManager = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const memberId = lineForm.memberId || teamMembers[0]?.id;
+    if (!memberId) return toast.error("Add a manager to the team first.");
+    try {
+      await setUserLineManager({ id: memberId, lineManager: lineForm.lineManagerId }).unwrap();
+      toast.success(
+        lineForm.lineManagerId
+          ? `${managerName(memberId)} now reports to ${managerName(lineForm.lineManagerId)}.`
+          : `Cleared ${managerName(memberId)}'s reporting line.`,
+      );
+      setLineForm({ memberId: "", lineManagerId: "" });
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Could not set that reporting line."));
+    }
+  };
+
+  const handleClearLineManager = async (memberId: string) => {
+    const ok = await confirm({
+      tone: "danger",
+      title: "Remove reporting line?",
+      confirmLabel: "Remove",
+      message: (
+        <>
+          <strong>{managerName(memberId)}</strong> will no longer report to anyone, and their line
+          manager will stop seeing their commission.
+        </>
+      ),
+    });
+    if (!ok) return;
+    try {
+      await setUserLineManager({ id: memberId, lineManager: "" }).unwrap();
+      toast.success("Reporting line removed.");
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Could not remove that reporting line."));
+    }
   };
 
   return (
@@ -245,14 +299,18 @@ export default function PermissionsView() {
         </div>
         <div className="section-body">
           <div className="notice">
-            Use this for talent assistants or line managers who need to see another manager&apos;s CRM and Reports
-            without becoming admin.
+            Set who each manager reports to. A manager sees their own commission sheet plus the
+            commission of everyone reporting to them — nobody else&apos;s.
           </div>
           {canAdminister ? (
-            <form className="form-grid" data-line-report-form onSubmit={(e) => e.preventDefault()}>
+            <form className="form-grid" onSubmit={handleSetLineManager}>
               <div className="field">
-                <label htmlFor="lineManagerId">Team member</label>
-                <select id="lineManagerId" name="lineManagerId">
+                <label htmlFor="lineReportMember">Team member</label>
+                <select
+                  id="lineReportMember"
+                  value={lineForm.memberId || teamMembers[0]?.id || ""}
+                  onChange={(e) => setLineForm({ ...lineForm, memberId: e.target.value })}
+                >
                   {teamMembers.map((member) => (
                     <option key={member.id} value={member.id}>
                       {member.name} - {roleLabel(member.role)}
@@ -261,17 +319,24 @@ export default function PermissionsView() {
                 </select>
               </div>
               <div className="field">
-                <label htmlFor="reportManagerId">Can access manager</label>
-                <select id="reportManagerId" name="reportManagerId">
-                  {managerUsers.map((manager) => (
-                    <option key={manager.id} value={manager.id}>
-                      {manager.name}
-                    </option>
-                  ))}
+                <label htmlFor="lineReportManager">Reports to</label>
+                <select
+                  id="lineReportManager"
+                  value={lineForm.lineManagerId}
+                  onChange={(e) => setLineForm({ ...lineForm, lineManagerId: e.target.value })}
+                >
+                  <option value="">Nobody (clear)</option>
+                  {managerUsers
+                    .filter((m) => m.id !== (lineForm.memberId || teamMembers[0]?.id))
+                    .map((manager) => (
+                      <option key={manager.id} value={manager.id}>
+                        {manager.name}
+                      </option>
+                    ))}
                 </select>
               </div>
-              <button className="primary wide" type="submit">
-                Grant CRM and Reports access
+              <button className="primary wide" type="submit" disabled={savingLine}>
+                {savingLine ? "Saving…" : "Set reporting line"}
               </button>
             </form>
           ) : null}
@@ -281,21 +346,22 @@ export default function PermissionsView() {
             <thead>
               <tr>
                 <th>Team member</th>
-                <th>CRM and Reports access</th>
+                <th>Reports to</th>
                 <th>Remove</th>
               </tr>
             </thead>
             <tbody>
               {lineReportRows.length ? (
                 lineReportRows.map((row) => (
-                  <tr key={`${row.lineManagerId}::${row.reportManagerId}`}>
-                    <td>{managerName(row.lineManagerId)}</td>
+                  <tr key={row.reportManagerId}>
                     <td>{managerName(row.reportManagerId)}</td>
+                    <td>{managerName(row.lineManagerId)}</td>
                     <td>
                       {canAdminister ? (
                         <button
                           className="secondary danger-button"
-                          data-remove-line-report={`${row.lineManagerId}::${row.reportManagerId}`}
+                          type="button"
+                          onClick={() => handleClearLineManager(row.reportManagerId)}
                         >
                           Remove
                         </button>
@@ -307,7 +373,7 @@ export default function PermissionsView() {
                 ))
               ) : (
                 <tr>
-                  <td colSpan={3}>No line report access added yet.</td>
+                  <td colSpan={3}>No reporting lines set yet.</td>
                 </tr>
               )}
             </tbody>

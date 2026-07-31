@@ -19,7 +19,13 @@ export function refId(ref: ApiManagerRef | string | undefined): string {
 }
 
 export function toProfile(u: ApiUser): Profile {
-  return { id: u.id, name: u.name, role: u.role, email: u.email };
+  return {
+    id: u.id,
+    name: u.name,
+    role: u.role,
+    email: u.email,
+    lineManagerId: refId(u.lineManager || undefined) || undefined,
+  };
 }
 
 export function toManagers(team: ApiUser[]): Profile[] {
@@ -47,6 +53,7 @@ export function toDeal(d: ApiDeal): Deal {
     xeroAccountCode: d.xeroAccountCode,
     xeroTaxRate: d.xeroTaxRate,
     contractUrl: d.contractUrl,
+    noContract: d.noContract,
     approvalStatus: d.approvalStatus,
     company: d.company || d.companyName,
     contactEmail: d.contactEmail || d.emailAddresses,
@@ -66,6 +73,8 @@ export function toEmailLead(l: ApiEmailLead): EmailLead {
   return {
     id: l._id,
     managerId: refId(l.manager),
+    delegatedToId: refId(l.delegatedTo || undefined) || undefined,
+    delegatedById: refId(l.delegatedBy || undefined) || undefined,
     from: l.from,
     subject: l.subject,
     receivedAt: l.receivedAt,

@@ -36,7 +36,16 @@ export const userApi = baseApi.injectEndpoints({
     }),
     setUserRole: builder.mutation<ApiUser, { id: string; role: Role }>({
       query: ({ id, role }) => ({ url: `/user/${id}/role`, method: "PATCH", body: { role } }),
-      invalidatesTags: ["User"],
+      invalidatesTags: ["User", "Team"],
+    }),
+    // Empty lineManager clears the reporting line.
+    setUserLineManager: builder.mutation<ApiUser, { id: string; lineManager: string }>({
+      query: ({ id, lineManager }) => ({
+        url: `/user/${id}/line-manager`,
+        method: "PATCH",
+        body: { lineManager },
+      }),
+      invalidatesTags: ["User", "Team"],
     }),
   }),
 });
@@ -48,4 +57,5 @@ export const {
   useRejectUserMutation,
   useSetUserStatusMutation,
   useSetUserRoleMutation,
+  useSetUserLineManagerMutation,
 } = userApi;

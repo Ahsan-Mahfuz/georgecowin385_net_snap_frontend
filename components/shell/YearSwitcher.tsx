@@ -7,7 +7,7 @@ import { setYear } from "@/redux/features/year/yearSlice";
 import { availableYears } from "@/lib/format";
 
 // Global financial-year picker shown in the sidebar. Selecting a year filters
-// every deal-driven view (P&L, Cashflow, Commission, Leaderboard, CRM).
+// every deal-driven view (P&L, Commission, Leaderboard, CRM).
 // Custom dropdown (not a native <select>) so it can be styled to match the shell.
 export function YearSwitcher() {
   const dispatch = useDispatch();

@@ -3500,3 +3500,99 @@ button.small,
 .table-wrap table tbody tr.payment-run-row td:first-child {
   background: #eef3ed;
 }
+
+/* ==========================================================================
+   CRM board: drag and drop between stages, brand line, approval flag.
+   ========================================================================== */
+
+.crm-card {
+  cursor: grab;
+}
+
+.crm-card:active {
+  cursor: grabbing;
+}
+
+.crm-card.is-dragging {
+  opacity: 0.45;
+  cursor: grabbing;
+}
+
+/* Brand/company sits directly under the talent name. */
+.crm-card-brand {
+  color: var(--blue);
+  font-weight: 900;
+  font-size: 12px;
+}
+
+.crm-card-flag {
+  justify-self: start;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: var(--amber-soft);
+  color: var(--amber);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.crm-card-flag.is-rejected {
+  background: var(--rose-soft);
+  color: var(--rose);
+}
+
+/* Drop target highlight while a card is dragged over a column. */
+.crm-column.drag-over {
+  border-color: var(--green);
+  background: var(--green-soft);
+  box-shadow: inset 0 0 0 2px rgba(31, 107, 82, 0.25);
+}
+
+.crm-column.drag-over .crm-empty {
+  color: var(--green);
+  font-weight: 800;
+}
+
+/* Checkbox rows inside a field (No contract, No PO). */
+.checkbox-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.checkbox-line input[type="checkbox"] {
+  width: auto;
+  margin: 0;
+}
+
+.field-error {
+  display: block;
+  margin-top: 6px;
+  color: var(--rose);
+  font-weight: 800;
+  font-size: 12px;
+}
+
+/* Delegation controls on PR / Event request cards. */
+.delegate-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--muted);
+}
+
+.delegate-control .compact-select {
+  min-width: 190px;
+}
+
+.delegated-pill {
+  display: inline-block;
+  margin-top: 6px;
+}
