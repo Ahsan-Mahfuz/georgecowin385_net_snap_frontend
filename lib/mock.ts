@@ -78,6 +78,17 @@ export interface EmailLead {
   body: string;
 }
 
+/** One month of a sales deal's payment schedule, invoiced on its own. */
+export interface Installment {
+  monthIndex: number;
+  amount: number;
+  stage: string;
+  xeroInvoiceId: string;
+  xeroInvoiceNumber: string;
+  xeroStatus: string;
+  invoiceDate: string;
+}
+
 export interface CollectiveDeal {
   id: string;
   ownerId: string;
@@ -85,11 +96,17 @@ export interface CollectiveDeal {
   dealName: string;
   contactName: string;
   emailContact: string;
+  companyAddress: string;
+  poNumber: string;
+  noPoNumber: boolean;
+  contractUrl: string;
+  noContract: boolean;
   stage: string;
   amount: number;
   paymentTerm: string;
   customPaymentDays: number;
   monthValues: number[];
+  installments: Installment[];
   xeroOrg: string;
   xeroInvoiceId: string;
   xeroStatus: string;
@@ -102,6 +119,12 @@ export interface CollectiveDeal {
 export const crmStages = ["Conversation", "Negotiation", "Contract Signed", "To Be Invoiced", "Invoiced", "On Next Payment Run", "Paid"];
 export const reportStages = ["Conversation", "Negotiation", "Contract Signed", "Invoiced", "On Next Payment Run", "Paid"];
 export const collectiveStages = ["Conversation", "Negotiation", "Contract Signed", "To Be Invoiced", "Invoiced", "Paid"];
+// Stages that represent committed (live) revenue on the Sales CRM. Anything
+// before Contract Signed is still pipeline.
+export const collectiveLiveStages = ["Contract Signed", "To Be Invoiced", "Invoiced", "Paid"];
+export const collectivePipelineStages = ["Conversation", "Negotiation"];
+// The lifecycle of a single scheduled payment within a deal.
+export const installmentStages = ["Scheduled", "To Be Invoiced", "Invoiced", "Paid"];
 export const productionItems = ["Producer", "DOP", "Editor"];
 
 export const paymentTerms = [

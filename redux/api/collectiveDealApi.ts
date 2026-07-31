@@ -25,6 +25,32 @@ export const collectiveDealApi = baseApi.injectEndpoints({
     }),
     createCollectiveInvoice: builder.mutation<ApiCollectiveDeal, string>({
       query: (id) => ({ url: `/collective-deal/${id}/xero-invoice`, method: "POST" }),
+      // Unwrap so callers can read xeroStatus straight off the result.
+      transformResponse: (res: ApiEnvelope<ApiCollectiveDeal>) => res.data,
+      invalidatesTags: ["CollectiveDeal"],
+    }),
+    // Move one scheduled month of a deal through its own invoice lifecycle.
+    updateCollectiveInstallment: builder.mutation<
+      ApiCollectiveDeal,
+      { id: string; monthIndex: number; stage: string }
+    >({
+      query: ({ id, monthIndex, stage }) => ({
+        url: `/collective-deal/${id}/installment/${monthIndex}`,
+        method: "PATCH",
+        body: { stage },
+      }),
+      transformResponse: (res: ApiEnvelope<ApiCollectiveDeal>) => res.data,
+      invalidatesTags: ["CollectiveDeal"],
+    }),
+    createCollectiveInstallmentInvoice: builder.mutation<
+      ApiCollectiveDeal,
+      { id: string; monthIndex: number }
+    >({
+      query: ({ id, monthIndex }) => ({
+        url: `/collective-deal/${id}/installment/${monthIndex}/xero-invoice`,
+        method: "POST",
+      }),
+      transformResponse: (res: ApiEnvelope<ApiCollectiveDeal>) => res.data,
       invalidatesTags: ["CollectiveDeal"],
     }),
     markCollectiveInvoiced: builder.mutation<ApiCollectiveDeal, string>({
@@ -44,6 +70,8 @@ export const {
   useUpdateCollectiveDealMutation,
   useDeleteCollectiveDealMutation,
   useCreateCollectiveInvoiceMutation,
+  useUpdateCollectiveInstallmentMutation,
+  useCreateCollectiveInstallmentInvoiceMutation,
   useMarkCollectiveInvoicedMutation,
   useMarkCollectivePaidMutation,
 } = collectiveDealApi;

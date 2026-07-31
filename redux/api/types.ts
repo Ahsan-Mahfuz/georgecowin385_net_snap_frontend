@@ -179,6 +179,16 @@ export interface ApiApproval {
   createdAt: string;
 }
 
+export interface ApiInstallment {
+  monthIndex: number;
+  amount: number;
+  stage: string;
+  xeroInvoiceId: string;
+  xeroInvoiceNumber: string;
+  xeroStatus: string;
+  invoiceDate: string;
+}
+
 export interface ApiCollectiveDeal {
   _id: string;
   owner: ApiManagerRef | string;
@@ -186,11 +196,17 @@ export interface ApiCollectiveDeal {
   dealName: string;
   contactName?: string;
   emailContact?: string;
+  companyAddress?: string;
+  poNumber?: string;
+  noPoNumber?: boolean;
+  contractUrl?: string;
+  noContract?: boolean;
   stage: string;
   amount: number;
   paymentTerm: string;
   customPaymentDays: number;
   monthValues: number[];
+  installments?: ApiInstallment[];
   xeroOrg: string;
   xeroInvoiceId: string;
   xeroStatus: string;

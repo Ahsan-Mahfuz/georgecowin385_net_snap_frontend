@@ -2,30 +2,12 @@
 
 import { useState } from "react";
 import { months, money, sum } from "@/lib/format";
-import {
-  collectiveStages,
-  paymentTerms,
-  type CollectiveDeal,
-} from "@/lib/mock";
+import { collectiveStages, type CollectiveDeal } from "@/lib/mock";
+import { scopedCollectiveDeals, type CollectiveScope } from "@/lib/collective";
 import { useCollectiveTeam } from "@/hooks/useCollectiveTeam";
 import { useGetCollectiveDealsQuery } from "@/redux/api/collectiveDealApi";
 import { toCollectiveDeal } from "@/lib/adapters";
-
-function collectiveDealTotal(deal: CollectiveDeal): number {
-  return Number(deal.amount || sum(deal.monthValues || []));
-}
-
-function collectiveScheduledTotal(deal: CollectiveDeal): number {
-  return sum(deal.monthValues || []);
-}
-
-function currencyInput(value: number): string {
-  return new Intl.NumberFormat("en-GB", {
-    style: "currency",
-    currency: "GBP",
-    maximumFractionDigits: 2,
-  }).format(Number(value || 0));
-}
+import CollectiveDealSummary from "./CollectiveDealSummary";
 
 export default function CollectiveMonthsView() {
   const { users: collectiveSalesUsers } = useCollectiveTeam();
@@ -34,9 +16,13 @@ export default function CollectiveMonthsView() {
     collectiveSalesUsers.find((user) => user.id === id)?.name || "Unassigned";
 
   const [monthFilter, setMonthFilter] = useState<string>("all");
+  const [scope, setScope] = useState<CollectiveScope>("all");
   const [selectedDealId, setSelectedDealId] = useState<string | null>(null);
 
-  const deals = [...dealData.map(toCollectiveDeal)].sort(
+  const deals: CollectiveDeal[] = scopedCollectiveDeals(
+    dealData.map(toCollectiveDeal),
+    scope,
+  ).sort(
     (a, b) =>
       collectiveStages.indexOf(a.stage) - collectiveStages.indexOf(b.stage) ||
       a.company.localeCompare(b.company),
@@ -66,6 +52,19 @@ export default function CollectiveMonthsView() {
         <div className="section-head">
           <h2>Monthly cash view</h2>
           <div className="section-actions">
+            <div className="segmented" role="group" aria-label="Live or pipeline deals">
+              {(["all", "live", "pipeline"] as CollectiveScope[]).map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  data-collective-scope={option}
+                  className={scope === option ? "active" : ""}
+                  onClick={() => setScope(option)}
+                >
+                  {option === "all" ? "All deals" : option === "live" ? "Live" : "Pipeline"}
+                </button>
+              ))}
+            </div>
             <select
               className="compact-select"
               value={monthFilter}
@@ -167,116 +166,10 @@ export default function CollectiveMonthsView() {
               <span className="pill confirmed">{selectedDeal.stage}</span>
             </div>
             <div className="section-body">
-              <div className="crm-detail-grid">
-                <div className="crm-detail-title">
-                  <strong>{selectedDeal.dealName}</strong>
-                  <span>
-                    {money(collectiveDealTotal(selectedDeal))} · {collectiveUserName(selectedDeal.ownerId)}
-                  </span>
-                </div>
-                <div className="field">
-                  <label>Company</label>
-                  <input defaultValue={selectedDeal.company} />
-                </div>
-                <div className="field">
-                  <label>Deal name</label>
-                  <input defaultValue={selectedDeal.dealName} />
-                </div>
-                <div className="field">
-                  <label>Sales owner</label>
-                  <select className="compact-select mini-select" defaultValue={selectedDeal.ownerId}>
-                    {collectiveSalesUsers.map((user) => (
-                      <option key={user.id} value={user.id}>
-                        {user.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="field">
-                  <label>Stage</label>
-                  <select className="compact-select mini-select" defaultValue={selectedDeal.stage}>
-                    {collectiveStages.map((stage) => (
-                      <option key={stage} value={stage}>
-                        {stage}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="field">
-                  <label>Deal amount</label>
-                  <input defaultValue={currencyInput(selectedDeal.amount)} />
-                </div>
-                <div className="field">
-                  <label>Payment terms</label>
-                  <select className="compact-select mini-select" defaultValue={selectedDeal.paymentTerm}>
-                    {paymentTerms.map((term) => (
-                      <option key={term.value} value={term.value}>
-                        {term.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="field">
-                  <label>Own time in days</label>
-                  <input defaultValue={selectedDeal.customPaymentDays || ""} />
-                </div>
-                <div className="field">
-                  <label>Contact name</label>
-                  <input defaultValue={selectedDeal.contactName || ""} />
-                </div>
-                <div className="field">
-                  <label>Email addresses</label>
-                  <input defaultValue={selectedDeal.emailContact || ""} />
-                </div>
-                <div className="field wide">
-                  <label>Notes</label>
-                  <textarea defaultValue={selectedDeal.notes || ""} />
-                </div>
-                <div className="field wide">
-                  <label>Payment schedule</label>
-                  <div className="collective-payment-grid">
-                    {months.map((month, index) => (
-                      <label key={month}>
-                        <span>{month}</span>
-                        <input
-                          defaultValue={Number((selectedDeal.monthValues || [])[index] || 0) || ""}
-                          inputMode="decimal"
-                        />
-                      </label>
-                    ))}
-                  </div>
-                  <small className="field-hint">
-                    Scheduled total: {money(collectiveScheduledTotal(selectedDeal))}
-                  </small>
-                </div>
-                <div className="field wide">
-                  <label>Collective Xero</label>
-                  <div className="xero-status-card">
-                    <strong>{selectedDeal.xeroInvoiceId || "No draft invoice yet"}</strong>
-                    <span>
-                      {selectedDeal.xeroStatus ||
-                        "Uses the separate Cowshed Collective Xero connection in the real build."}
-                    </span>
-                    <div className="section-actions">
-                      <button className="secondary" type="button">
-                        {selectedDeal.xeroInvoiceId
-                          ? "Update draft in Collective Xero"
-                          : "Create draft in Collective Xero"}
-                      </button>
-                      {selectedDeal.xeroInvoiceId ? (
-                        <button className="secondary" type="button">
-                          Mark invoiced
-                        </button>
-                      ) : null}
-                      {selectedDeal.xeroInvoiceId ? (
-                        <button className="secondary" type="button">
-                          Mark paid/reconciled
-                        </button>
-                      ) : null}
-                    </div>
-                  </div>
-                </div>
-              </div>
+              <CollectiveDealSummary
+                deal={selectedDeal}
+                ownerName={collectiveUserName(selectedDeal.ownerId)}
+              />
             </div>
           </section>
         </div>
