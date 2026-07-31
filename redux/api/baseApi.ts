@@ -22,6 +22,7 @@ export const baseApi = createApi({
     "Deal",
     "CollectiveDeal",
     "Talent",
+    "Brand",
     "Overhead",
     "EmailLead",
     "Expense",

@@ -13,11 +13,45 @@ import {
 import { useCollectiveTeam } from "@/hooks/useCollectiveTeam";
 import {
   useGetCollectiveDealsQuery,
+  useCreateCollectiveDealMutation,
+  useUpdateCollectiveDealMutation,
+  useDeleteCollectiveDealMutation,
   useCreateCollectiveInvoiceMutation,
   useMarkCollectiveInvoicedMutation,
   useMarkCollectivePaidMutation,
 } from "@/redux/api/collectiveDealApi";
 import { toCollectiveDeal } from "@/lib/adapters";
+import type { ApiCollectiveDeal } from "@/redux/api/types";
+import { useConfirm } from "@/components/ui/ConfirmProvider";
+import { apiErrorMessage, useToast } from "@/components/ui/Toast";
+
+/**
+ * Reads the deal fields out of a submitted form. Both the add panel and the
+ * detail panel use the same field names, so one reader serves both.
+ */
+function readDealForm(formEl: HTMLFormElement): Partial<ApiCollectiveDeal> {
+  const fd = new FormData(formEl);
+  const text = (key: string) => String(fd.get(key) ?? "").trim();
+  const num = (key: string) => {
+    // Amounts may arrive already formatted ("£1,250.00") from the detail panel.
+    const parsed = Number(String(fd.get(key) ?? "").replace(/[^0-9.-]/g, ""));
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+  const monthValues = months.map((_, index) => num(`month-${index}`));
+  return {
+    owner: text("ownerId"),
+    company: text("company"),
+    dealName: text("dealName"),
+    contactName: text("contactName"),
+    emailContact: text("emailContact"),
+    stage: text("stage"),
+    amount: num("amount"),
+    paymentTerm: text("paymentTerm"),
+    customPaymentDays: num("customPaymentDays"),
+    monthValues,
+    notes: text("notes"),
+  };
+}
 
 function currencyInput(value: number): string {
   return new Intl.NumberFormat("en-GB", {
@@ -44,9 +78,14 @@ export default function CollectiveCrmView() {
   const sessionUser = useSelector((s: RootState) => s.session.collectiveUser);
   const { users: collectiveSalesUsers } = useCollectiveTeam();
   const { data: dealData = [] } = useGetCollectiveDealsQuery();
-  const [createInvoice] = useCreateCollectiveInvoiceMutation();
+  const [createDeal, { isLoading: creating }] = useCreateCollectiveDealMutation();
+  const [updateDeal, { isLoading: updating }] = useUpdateCollectiveDealMutation();
+  const [deleteDeal] = useDeleteCollectiveDealMutation();
+  const [createInvoice, { isLoading: invoicing }] = useCreateCollectiveInvoiceMutation();
   const [markInvoiced] = useMarkCollectiveInvoicedMutation();
   const [markPaid] = useMarkCollectivePaidMutation();
+  const confirm = useConfirm();
+  const toast = useToast();
 
   // Fall back to the first sales user only until the session hydrates.
   const collectiveUser: Profile = sessionUser || collectiveSalesUsers[0] || {
@@ -84,6 +123,124 @@ export default function CollectiveCrmView() {
     collectiveUser.role === "admin" ? collectiveSalesUsers : [collectiveUser];
 
   const summaryTotal = deals.reduce((total, deal) => total + collectiveDealTotal(deal), 0);
+
+  const handleAdd = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const body = readDealForm(event.currentTarget);
+    if (!body.company) return toast.error("Enter the client company.");
+    if (!body.dealName) return toast.error("Give the deal a name.");
+    if (!body.owner) body.owner = collectiveUser.id;
+    try {
+      await createDeal(body).unwrap();
+      toast.success(`${body.company} — ${body.dealName} added to ${body.stage}.`);
+      setAddOpen(false);
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Could not add that deal."));
+    }
+  };
+
+  const handleSave = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!selectedDeal) return;
+    const body = readDealForm(event.currentTarget);
+    if (!body.company) return toast.error("Enter the client company.");
+    if (!body.dealName) return toast.error("Give the deal a name.");
+    try {
+      await updateDeal({ id: selectedDeal.id, body }).unwrap();
+      toast.success("Deal updated.");
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Could not save those changes."));
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!selectedDeal) return;
+    const ok = await confirm({
+      tone: "danger",
+      title: "Delete sales deal?",
+      confirmLabel: "Delete deal",
+      message: (
+        <>
+          <strong>
+            {selectedDeal.company} &middot; {selectedDeal.dealName}
+          </strong>{" "}
+          ({money(collectiveDealTotal(selectedDeal))}) will be removed from the CRM, Deals by month
+          and Quarter view. This cannot be undone.
+          {selectedDeal.xeroInvoiceId ? (
+            <>
+              {" "}
+              Its <strong>Collective Xero draft is not deleted</strong> — remove that in Xero
+              separately.
+            </>
+          ) : null}
+        </>
+      ),
+    });
+    if (!ok) return;
+    try {
+      await deleteDeal(selectedDeal.id).unwrap();
+      toast.success("Deal deleted.");
+      setSelectedDealId(null);
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Could not delete that deal."));
+    }
+  };
+
+  // Pushing a draft to Xero leaves the building — always ask first.
+  const handleCreateInvoice = async () => {
+    if (!selectedDeal) return;
+    const ok = await confirm({
+      tone: "default",
+      title: selectedDeal.xeroInvoiceId ? "Update Xero draft?" : "Create draft in Collective Xero?",
+      confirmLabel: selectedDeal.xeroInvoiceId ? "Update draft" : "Create draft",
+      message: (
+        <>
+          A draft invoice for <strong>{money(collectiveDealTotal(selectedDeal))}</strong> will be
+          created in the <strong>Cowshed Collective</strong> Xero organisation for{" "}
+          {selectedDeal.company}. It stays a draft — nothing is sent to the client.
+        </>
+      ),
+    });
+    if (!ok) return;
+    try {
+      const result = await createInvoice(selectedDeal.id).unwrap();
+      toast.success(result.xeroStatus || "Draft invoice created in Collective Xero.");
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Could not reach Xero."));
+    }
+  };
+
+  const handleMarkInvoiced = async () => {
+    if (!selectedDeal) return;
+    try {
+      await markInvoiced(selectedDeal.id).unwrap();
+      toast.success("Marked as invoiced.");
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Could not update the deal."));
+    }
+  };
+
+  const handleMarkPaid = async () => {
+    if (!selectedDeal) return;
+    const ok = await confirm({
+      tone: "default",
+      title: "Mark as paid?",
+      confirmLabel: "Mark paid",
+      message: (
+        <>
+          <strong>{selectedDeal.company}</strong> moves to Paid / reconciled. Only do this once the
+          money has landed and Xero is reconciled.
+        </>
+      ),
+    });
+    if (!ok) return;
+    try {
+      await markPaid(selectedDeal.id).unwrap();
+      toast.success("Marked as paid and reconciled.");
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Could not update the deal."));
+    }
+  };
 
   return (
     <>
@@ -228,7 +385,7 @@ export default function CollectiveCrmView() {
               <span className="pill confirmed">Collective Xero</span>
             </div>
             <div className="section-body">
-              <form className="form-grid" onSubmit={(event) => event.preventDefault()}>
+              <form className="form-grid" onSubmit={handleAdd}>
                 <div className="field">
                   <label htmlFor="collectiveOwnerId">Sales owner</label>
                   <select
@@ -344,8 +501,8 @@ export default function CollectiveCrmView() {
                     Quarter view.
                   </small>
                 </div>
-                <button className="primary wide" type="submit">
-                  Add sales deal
+                <button className="primary wide" type="submit" disabled={creating}>
+                  {creating ? "Adding…" : "Add sales deal"}
                 </button>
               </form>
             </div>
@@ -374,7 +531,8 @@ export default function CollectiveCrmView() {
               <span className="pill confirmed">{selectedDeal.stage}</span>
             </div>
             <div className="section-body">
-              <div className="crm-detail-grid">
+              {/* Keyed on the deal id so switching deals re-seeds every defaultValue. */}
+              <form className="crm-detail-grid" key={selectedDeal.id} onSubmit={handleSave}>
                 <div className="crm-detail-title">
                   <strong>{selectedDeal.dealName}</strong>
                   <span>
@@ -383,16 +541,18 @@ export default function CollectiveCrmView() {
                   </span>
                 </div>
                 <div className="field">
-                  <label>Company</label>
-                  <input defaultValue={selectedDeal.company} />
+                  <label htmlFor="detailCompany">Company</label>
+                  <input id="detailCompany" name="company" defaultValue={selectedDeal.company} required />
                 </div>
                 <div className="field">
-                  <label>Deal name</label>
-                  <input defaultValue={selectedDeal.dealName} />
+                  <label htmlFor="detailDealName">Deal name</label>
+                  <input id="detailDealName" name="dealName" defaultValue={selectedDeal.dealName} required />
                 </div>
                 <div className="field">
-                  <label>Sales owner</label>
+                  <label htmlFor="detailOwner">Sales owner</label>
                   <select
+                    id="detailOwner"
+                    name="ownerId"
                     className="compact-select mini-select"
                     defaultValue={selectedDeal.ownerId}
                     disabled={collectiveUser.role !== "admin"}
@@ -405,8 +565,13 @@ export default function CollectiveCrmView() {
                   </select>
                 </div>
                 <div className="field">
-                  <label>Stage</label>
-                  <select className="compact-select mini-select" defaultValue={selectedDeal.stage}>
+                  <label htmlFor="detailStage">Stage</label>
+                  <select
+                    id="detailStage"
+                    name="stage"
+                    className="compact-select mini-select"
+                    defaultValue={selectedDeal.stage}
+                  >
                     {collectiveStages.map((stage) => (
                       <option value={stage} key={stage}>
                         {stage}
@@ -415,12 +580,14 @@ export default function CollectiveCrmView() {
                   </select>
                 </div>
                 <div className="field">
-                  <label>Deal amount</label>
-                  <input defaultValue={currencyInput(selectedDeal.amount)} />
+                  <label htmlFor="detailAmount">Deal amount</label>
+                  <input id="detailAmount" name="amount" defaultValue={currencyInput(selectedDeal.amount)} />
                 </div>
                 <div className="field">
-                  <label>Payment terms</label>
+                  <label htmlFor="detailPaymentTerm">Payment terms</label>
                   <select
+                    id="detailPaymentTerm"
+                    name="paymentTerm"
                     className="compact-select mini-select"
                     defaultValue={selectedDeal.paymentTerm}
                   >
@@ -432,20 +599,26 @@ export default function CollectiveCrmView() {
                   </select>
                 </div>
                 <div className="field">
-                  <label>Own time in days</label>
-                  <input defaultValue={selectedDeal.customPaymentDays || ""} />
+                  <label htmlFor="detailCustomDays">Own time in days</label>
+                  <input
+                    id="detailCustomDays"
+                    name="customPaymentDays"
+                    type="number"
+                    min="0"
+                    defaultValue={selectedDeal.customPaymentDays || ""}
+                  />
                 </div>
                 <div className="field">
-                  <label>Contact name</label>
-                  <input defaultValue={selectedDeal.contactName || ""} />
+                  <label htmlFor="detailContactName">Contact name</label>
+                  <input id="detailContactName" name="contactName" defaultValue={selectedDeal.contactName || ""} />
                 </div>
                 <div className="field">
-                  <label>Email addresses</label>
-                  <input defaultValue={selectedDeal.emailContact || ""} />
+                  <label htmlFor="detailEmail">Email addresses</label>
+                  <input id="detailEmail" name="emailContact" defaultValue={selectedDeal.emailContact || ""} />
                 </div>
                 <div className="field wide">
-                  <label>Notes</label>
-                  <textarea defaultValue={selectedDeal.notes} />
+                  <label htmlFor="detailNotes">Notes</label>
+                  <textarea id="detailNotes" name="notes" defaultValue={selectedDeal.notes} />
                 </div>
                 <div className="field wide">
                   <label>Payment schedule</label>
@@ -454,9 +627,8 @@ export default function CollectiveCrmView() {
                       <label key={month}>
                         <span>{month}</span>
                         <input
-                          defaultValue={
-                            Number((selectedDeal.monthValues || [])[index] || 0) || ""
-                          }
+                          name={`month-${index}`}
+                          defaultValue={Number((selectedDeal.monthValues || [])[index] || 0) || ""}
                           inputMode="decimal"
                         />
                       </label>
@@ -466,34 +638,48 @@ export default function CollectiveCrmView() {
                     Scheduled total: {money(collectiveScheduledTotal(selectedDeal))}
                   </small>
                 </div>
+
+                <div className="field wide">
+                  <div className="row-actions">
+                    <button className="primary" type="submit" disabled={updating}>
+                      {updating ? "Saving…" : "Save changes"}
+                    </button>
+                    <button className="secondary danger-button" type="button" onClick={handleDelete}>
+                      Delete deal
+                    </button>
+                  </div>
+                </div>
+
                 <div className="field wide">
                   <label>Collective Xero</label>
                   <div className="xero-status-card">
                     <strong>{selectedDeal.xeroInvoiceId || "No draft invoice yet"}</strong>
                     <span>
                       {selectedDeal.xeroStatus ||
-                        "Uses the separate Cowshed Collective Xero connection in the real build."}
+                        "Uses the separate Cowshed Collective Xero connection."}
                     </span>
                     <div className="section-actions">
-                      <button className="secondary" type="button" onClick={() => createInvoice(selectedDeal.id)}>
-                        {selectedDeal.xeroInvoiceId
-                          ? "Update draft in Collective Xero"
-                          : "Create draft in Collective Xero"}
+                      <button className="secondary" type="button" onClick={handleCreateInvoice} disabled={invoicing}>
+                        {invoicing
+                          ? "Contacting Xero…"
+                          : selectedDeal.xeroInvoiceId
+                            ? "Update draft in Collective Xero"
+                            : "Create draft in Collective Xero"}
                       </button>
                       {selectedDeal.xeroInvoiceId ? (
-                        <button className="secondary" type="button" onClick={() => markInvoiced(selectedDeal.id)}>
+                        <button className="secondary" type="button" onClick={handleMarkInvoiced}>
                           Mark invoiced
                         </button>
                       ) : null}
                       {selectedDeal.xeroInvoiceId ? (
-                        <button className="secondary" type="button" onClick={() => markPaid(selectedDeal.id)}>
+                        <button className="secondary" type="button" onClick={handleMarkPaid}>
                           Mark paid/reconciled
                         </button>
                       ) : null}
                     </div>
                   </div>
                 </div>
-              </div>
+              </form>
             </div>
           </section>
         </div>

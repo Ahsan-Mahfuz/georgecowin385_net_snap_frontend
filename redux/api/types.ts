@@ -87,6 +87,8 @@ export interface ApiProductionRequest {
   total: number;
   status: "pending" | "scheduled" | "completed" | "rejected";
   note?: string;
+  /** Set once finance has raised the chargeback against the manager's P&L. */
+  chargebackRequestedAt?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -94,8 +96,19 @@ export interface ApiProductionRequest {
 export interface ApiTalent {
   _id: string;
   name: string;
+  email?: string;
   manager: ApiManagerRef | string;
   createdAt: string;
+}
+
+export interface ApiBrand {
+  _id: string;
+  name: string;
+  emailContact?: string;
+  billingAddress?: string;
+  paymentTerm?: string;
+  customPaymentDays?: number;
+  updatedAt?: string;
 }
 
 export interface ApiOverhead {
@@ -129,10 +142,13 @@ export interface ApiExpense {
   category?: string;
   label: string;
   manager?: ApiManagerRef | string;
+  /** Set on talent expenses that are recharged against a specific CRM deal. */
+  deal?: ApiManagerRef | string;
   talentName?: string;
   amount: number;
   monthIndex: number;
   note?: string;
+  createdAt?: string;
 }
 
 export interface ApiSettings {

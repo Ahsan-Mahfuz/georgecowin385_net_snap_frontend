@@ -3,13 +3,20 @@
 import { useMemo, useState } from "react";
 import { useSelector } from "react-redux";
 import { RootState } from "@/redux/store";
-import { money, sum, stageClass } from "@/lib/format";
+import { money, months, sum, stageClass } from "@/lib/format";
 import { crmStages } from "@/lib/mock";
 import { useCreatorsTeam } from "@/hooks/useCreatorsTeam";
 import { useGetTalentsQuery } from "@/redux/api/talentApi";
-import { useGetDealsQuery, useCreateDealMutation } from "@/redux/api/dealApi";
+import {
+  useGetDealsQuery,
+  useCreateDealMutation,
+  useUpdateDealMutation,
+  useDeleteDealMutation,
+} from "@/redux/api/dealApi";
 import { toDeal, talentNamesForManager } from "@/lib/adapters";
-import type { ApiTalent } from "@/redux/api/types";
+import type { ApiDeal, ApiTalent } from "@/redux/api/types";
+import { useConfirm } from "@/components/ui/ConfirmProvider";
+import { apiErrorMessage, useToast } from "@/components/ui/Toast";
 
 const manualCrmStages = crmStages.filter((stage) => stage !== "Paid");
 
@@ -19,6 +26,10 @@ export default function CrmView() {
   const { data: talentData = [] } = useGetTalentsQuery();
   const { data: dealData = [] } = useGetDealsQuery({ year: String(year) });
   const [createDeal, { isLoading: creating }] = useCreateDealMutation();
+  const [updateDeal, { isLoading: updating }] = useUpdateDealMutation();
+  const [deleteDeal] = useDeleteDealMutation();
+  const confirm = useConfirm();
+  const toast = useToast();
 
   const deals = useMemo(() => dealData.map(toDeal), [dealData]);
   const managerName = (id: string) => managers.find((m) => m.id === id)?.name || id;
@@ -26,12 +37,17 @@ export default function CrmView() {
   const [managerFilter, setManagerFilter] = useState("all");
   const [stageFilter, setStageFilter] = useState("all");
   const [addOpen, setAddOpen] = useState(false);
+  // Deal currently open in the detail modal (null = closed).
+  const [detailId, setDetailId] = useState<string | null>(null);
+  // Set when the add panel is reused to edit an existing deal.
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState({
     managerId: "",
     talentName: "",
     inboundOrOutbound: "Inbound" as "Inbound" | "Outbound",
     stage: "Conversation",
     amount: "",
+    monthIndex: 0,
     useUSD: false,
     paymentTerms: "Upfront",
     ownTimeDays: "",
@@ -57,16 +73,101 @@ export default function CrmView() {
   const dealTotal = (d: (typeof deals)[number]) => sum(d.monthValues);
   const totalVisible = filtered.reduce((t, d) => t + dealTotal(d), 0);
 
+  const emptyForm = {
+    managerId: "",
+    talentName: "",
+    inboundOrOutbound: "Inbound" as "Inbound" | "Outbound",
+    stage: "Conversation",
+    amount: "",
+    monthIndex: 0,
+    useUSD: false,
+    paymentTerms: "Upfront",
+    ownTimeDays: "",
+    companyName: "",
+    campaignName: "",
+    emailAddresses: "",
+    companyAddress: "",
+    poNumber: "",
+    noPoNumber: false,
+    xeroAccountCode: "200",
+    xeroTaxRate: "No VAT",
+    contractUrl: "",
+  };
+
+  const openAddPanel = () => {
+    setForm(emptyForm);
+    setEditingId(null);
+    setAddOpen(true);
+  };
+
+  /** Load an existing deal into the same panel for editing. */
+  const openEditPanel = (deal: (typeof deals)[number]) => {
+    const activeMonth = Math.max(0, (deal.monthValues || []).findIndex((v) => Number(v || 0) > 0));
+    setForm({
+      managerId: deal.managerId || "",
+      talentName: deal.talentName || "",
+      inboundOrOutbound: (deal.inboundOrOutbound as "Inbound" | "Outbound") || "Inbound",
+      stage: deal.stage || "Conversation",
+      amount: String(sum(deal.monthValues) || ""),
+      monthIndex: activeMonth,
+      useUSD: Boolean(deal.useUSD),
+      paymentTerms: deal.paymentTerms || "Upfront",
+      ownTimeDays: String(deal.ownTimeDays ?? ""),
+      companyName: deal.companyName || deal.company || "",
+      campaignName: deal.campaignName || "",
+      emailAddresses: deal.emailAddresses || "",
+      companyAddress: deal.companyAddress || "",
+      poNumber: deal.poNumber || "",
+      noPoNumber: Boolean(deal.noPoNumber),
+      xeroAccountCode: deal.xeroAccountCode || "200",
+      xeroTaxRate: deal.xeroTaxRate || "No VAT",
+      contractUrl: deal.contractUrl || "",
+    });
+    setEditingId(deal.id);
+    setDetailId(null);
+    setAddOpen(true);
+  };
+
+  const handleDelete = async (deal: (typeof deals)[number]) => {
+    const ok = await confirm({
+      tone: "danger",
+      title: "Delete CRM deal?",
+      confirmLabel: "Delete deal",
+      message: (
+        <>
+          <strong>
+            {deal.talentName} &middot; {deal.campaignName || "No campaign"}
+          </strong>{" "}
+          ({money(sum(deal.monthValues))}) will be removed from the CRM, the P&L and all reports.
+          This cannot be undone.
+        </>
+      ),
+    });
+    if (!ok) return;
+    try {
+      await deleteDeal(deal.id).unwrap();
+      toast.success("Deal deleted.");
+      setDetailId(null);
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Could not delete that deal."));
+    }
+  };
+
+  const detailDeal = detailId ? deals.find((d) => d.id === detailId) || null : null;
+
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.managerId || !form.talentName.trim()) return;
+    if (!form.managerId) return toast.error("Choose a talent manager.");
+    if (!form.talentName.trim()) return toast.error("Enter a talent name.");
+    const amount = Number(form.amount) || 0;
     const monthValues = new Array(12).fill(0);
-    monthValues[0] = Number(form.amount) || 0;
-    const status = (form.stage === "Conversation" || form.stage === "Negotiation" || form.stage === "Contract Signed")
-      ? "Pipeline"
-      : "Confirmed";
+    monthValues[form.monthIndex] = amount;
+    const status: "Pipeline" | "Confirmed" =
+      form.stage === "Conversation" || form.stage === "Negotiation" || form.stage === "Contract Signed"
+        ? "Pipeline"
+        : "Confirmed";
 
-    await createDeal({
+    const payload: Partial<ApiDeal> = {
       manager: form.managerId,
       talentName: form.talentName.trim(),
       inboundOrOutbound: form.inboundOrOutbound,
@@ -88,28 +189,22 @@ export default function CrmView() {
       contractUrl: form.contractUrl,
       currency: form.useUSD ? "USD" : "GBP",
       company: form.companyName.trim(),
-    });
+    };
 
-    setForm({
-      managerId: "",
-      talentName: "",
-      inboundOrOutbound: "Inbound",
-      stage: "Conversation",
-      amount: "",
-      useUSD: false,
-      paymentTerms: "Upfront",
-      ownTimeDays: "",
-      companyName: "",
-      campaignName: "",
-      emailAddresses: "",
-      companyAddress: "",
-      poNumber: "",
-      noPoNumber: false,
-      xeroAccountCode: "200",
-      xeroTaxRate: "No VAT",
-      contractUrl: "",
-    });
-    setAddOpen(false);
+    try {
+      if (editingId) {
+        await updateDeal({ id: editingId, body: payload }).unwrap();
+        toast.success(`${payload.talentName} deal updated.`);
+      } else {
+        await createDeal(payload).unwrap();
+        toast.success(`${payload.talentName} deal added to ${form.stage}.`);
+      }
+      setForm(emptyForm);
+      setEditingId(null);
+      setAddOpen(false);
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Could not save that deal."));
+    }
   };
 
   return (
@@ -145,8 +240,8 @@ export default function CrmView() {
         <div className="section-head">
           <h2>Deals by stage</h2>
           <div className="section-actions">
-            <button className="primary add-crm-toggle" type="button" onClick={() => setAddOpen((o) => !o)}>
-              {addOpen ? "Close add CRM deal" : "Add CRM deal"}
+            <button className="primary add-crm-toggle" type="button" onClick={openAddPanel}>
+              Add CRM deal
             </button>
             <select className="compact-select" value={managerFilter} onChange={(e) => setManagerFilter(e.target.value)}>
               <option value="all">All managers</option>
@@ -175,11 +270,17 @@ export default function CrmView() {
                 <div className="crm-card-list">
                   {stageDeals.length ? (
                     stageDeals.map((d) => (
-                      <div className="crm-card" key={d.id}>
+                      <button
+                        className="crm-card"
+                        type="button"
+                        key={d.id}
+                        onClick={() => setDetailId(d.id)}
+                        aria-label={`Open ${d.talentName} deal`}
+                      >
                         <strong>{d.talentName}</strong>
                         <span>{d.campaignName || "No campaign"} · {money(dealTotal(d))}</span>
                         <small>{managerName(d.managerId)}</small>
-                      </div>
+                      </button>
                     ))
                   ) : (
                     <div className="crm-empty">No deals</div>
@@ -191,13 +292,54 @@ export default function CrmView() {
         </div>
       </section>
 
+      {detailDeal ? (
+        <div
+          className="crm-detail-overlay"
+          onMouseDown={(e) => { if (e.target === e.currentTarget) setDetailId(null); }}
+        >
+          <section className="section crm-detail-modal" role="dialog" aria-modal="true" aria-label="Deal detail">
+            <button className="crm-detail-close" type="button" aria-label="Close" onClick={() => setDetailId(null)}>×</button>
+            <div className="section-head">
+              <h2>{detailDeal.talentName}</h2>
+              <span className={`pill ${stageClass(stageOf(detailDeal))}`}>{stageOf(detailDeal)}</span>
+            </div>
+            <div className="section-body">
+              <dl className="detail-grid">
+                <div><dt>Campaign</dt><dd>{detailDeal.campaignName || "—"}</dd></div>
+                <div><dt>Company</dt><dd>{detailDeal.companyName || detailDeal.company || "—"}</dd></div>
+                <div><dt>Manager</dt><dd>{managerName(detailDeal.managerId)}</dd></div>
+                <div><dt>Amount</dt><dd>{money(dealTotal(detailDeal))}{detailDeal.useUSD ? " (USD)" : ""}</dd></div>
+                <div><dt>Revenue month</dt><dd>{months[Math.max(0, (detailDeal.monthValues || []).findIndex((v) => Number(v || 0) > 0))] || "—"}</dd></div>
+                <div><dt>Status</dt><dd>{detailDeal.status}</dd></div>
+                <div><dt>Source</dt><dd>{detailDeal.inboundOrOutbound || "—"}</dd></div>
+                <div><dt>Payment terms</dt><dd>{detailDeal.paymentTerms || "—"}</dd></div>
+                <div><dt>PO number</dt><dd>{detailDeal.noPoNumber ? "No PO" : detailDeal.poNumber || "—"}</dd></div>
+                <div><dt>Contact</dt><dd>{detailDeal.emailAddresses || "—"}</dd></div>
+                <div><dt>Xero code</dt><dd>{detailDeal.xeroAccountCode || "—"}</dd></div>
+                <div><dt>Xero tax</dt><dd>{detailDeal.xeroTaxRate || "—"}</dd></div>
+              </dl>
+            </div>
+            <div className="section-body">
+              <div className="row-actions">
+                <button className="primary small" type="button" onClick={() => openEditPanel(detailDeal)}>
+                  Edit deal
+                </button>
+                <button className="secondary danger-button small" type="button" onClick={() => handleDelete(detailDeal)}>
+                  Delete deal
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
       {addOpen ? (
         <div className="crm-add-overlay">
           <section className="section crm-add-panel open" role="dialog" aria-modal="true" aria-label="Add CRM deal">
-            <button className="crm-detail-close" type="button" aria-label="Close" onClick={() => setAddOpen(false)}>×</button>
+            <button className="crm-detail-close" type="button" aria-label="Close" onClick={() => { setAddOpen(false); setEditingId(null); }}>×</button>
             <div className="section-head" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <h2>Add CRM deal</h2>
-              <span className="pill green" style={{ background: "#d9ece3", color: "#1f6b52", fontWeight: 700, padding: "4px 10px", borderRadius: "12px", fontSize: "12px" }}>Admin entry</span>
+              <h2>{editingId ? "Edit CRM deal" : "Add CRM deal"}</h2>
+              <span className="pill confirmed">{editingId ? "Editing" : "Admin entry"}</span>
             </div>
             <div className="section-body">
               <form className="form-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px" }} onSubmit={handleAdd}>
@@ -241,6 +383,15 @@ export default function CrmView() {
                 <div className="field">
                   <label htmlFor="crmAmount">Deal amount</label>
                   <input id="crmAmount" type="number" min="0" step="0.01" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} placeholder="0.00" />
+                </div>
+
+                <div className="field">
+                  <label htmlFor="crmMonth">Revenue month</label>
+                  <select id="crmMonth" value={form.monthIndex} onChange={(e) => setForm({ ...form, monthIndex: Number(e.target.value) })}>
+                    {months.map((month, index) => (
+                      <option key={month} value={index}>{month}</option>
+                    ))}
+                  </select>
                 </div>
 
                 <div className="field" style={{ display: "flex", flexDirection: "column", justifyContent: "center" }}>
@@ -319,8 +470,8 @@ export default function CrmView() {
                   <input id="crmContract" type="file" onChange={(e) => setForm({ ...form, contractUrl: e.target.files?.[0]?.name || "" })} />
                 </div>
 
-                <button className="primary wide" type="submit" style={{ gridColumn: "span 2", marginTop: "10px" }} disabled={creating}>
-                  {creating ? "Adding…" : "Add CRM deal"}
+                <button className="primary wide" type="submit" style={{ gridColumn: "span 2", marginTop: "10px" }} disabled={creating || updating}>
+                  {creating || updating ? "Saving…" : editingId ? "Save changes" : "Add CRM deal"}
                 </button>
               </form>
             </div>

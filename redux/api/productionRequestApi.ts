@@ -22,6 +22,10 @@ export const productionRequestApi = baseApi.injectEndpoints({
       query: ({ id, body }) => ({ url: `/production-request/${id}`, method: "PATCH", body }),
       invalidatesTags: ["ProductionRequest"],
     }),
+    requestProductionChargeback: builder.mutation<ApiProductionRequest, string>({
+      query: (id) => ({ url: `/production-request/${id}/request-chargeback`, method: "POST" }),
+      invalidatesTags: ["ProductionRequest"],
+    }),
     deleteProductionRequest: builder.mutation<null, string>({
       query: (id) => ({ url: `/production-request/${id}`, method: "DELETE" }),
       invalidatesTags: ["ProductionRequest"],
@@ -33,5 +37,6 @@ export const {
   useGetProductionRequestsQuery,
   useCreateProductionRequestMutation,
   useUpdateProductionRequestMutation,
+  useRequestProductionChargebackMutation,
   useDeleteProductionRequestMutation,
 } = productionRequestApi;

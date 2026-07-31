@@ -1,11 +1,17 @@
 "use client";
 
 import { money } from "@/lib/format";
+import { useCreatorsTeam } from "@/hooks/useCreatorsTeam";
+import {
+  useGetProductionRequestsQuery,
+  useRequestProductionChargebackMutation,
+} from "@/redux/api/productionRequestApi";
+import { refId } from "@/lib/adapters";
+import type { ApiProductionRequest } from "@/redux/api/types";
+import { useConfirm } from "@/components/ui/ConfirmProvider";
+import { apiErrorMessage, useToast } from "@/components/ui/Toast";
 
-// ---------------------------------------------------------------------------
-// Local types + static data. In the prototype these live on `state.productionRequests`,
-// which is empty on first load, so this view renders its empty states.
-// ---------------------------------------------------------------------------
+// View shape, mapped from the API record.
 type ProductionRequest = {
   id: string;
   managerId: string;
@@ -13,13 +19,32 @@ type ProductionRequest = {
   amount: number;
   shootDate: string;
   videoBrief?: string;
+  /** "Accepted" here means the shoot is going ahead — scheduled or completed. */
   status: string;
-  financeStatus?: string;
   items?: string[];
   itemDays?: Record<string, number>;
   chargebackPaymentRunDate?: string;
   chargebackRequestedAt?: string;
 };
+
+function toViewRequest(r: ApiProductionRequest): ProductionRequest {
+  const itemDays: Record<string, number> = {};
+  (r.items || []).forEach((item) => {
+    itemDays[item.name] = Number(item.days || 1);
+  });
+  return {
+    id: r._id,
+    managerId: refId(r.manager),
+    talentName: r.talentName,
+    amount: Number(r.total || 0),
+    shootDate: r.shootDate,
+    videoBrief: r.videoBrief,
+    status: r.status === "scheduled" || r.status === "completed" ? "Accepted" : r.status,
+    items: (r.items || []).map((item) => item.name),
+    itemDays,
+    chargebackRequestedAt: r.chargebackRequestedAt || undefined,
+  };
+}
 
 type CalendarEvent = {
   id: string;
@@ -30,16 +55,16 @@ type CalendarEvent = {
   amount: number;
 };
 
-const productionRequests: ProductionRequest[] = [];
+// Live team, published by the component before its children render so the
+// module-level helpers below can resolve manager names.
+let liveUsers: { id: string; name: string }[] = [];
 
 // ---------------------------------------------------------------------------
 // Helpers ported from the prototype (app.js)
 // ---------------------------------------------------------------------------
 function managerName(id: string): string {
-  // Production requests are empty until wired to live data; passthrough keeps the
-  // (unrendered) cards compiling.
   if (id === "admin") return "Admin";
-  return id || "Unassigned";
+  return liveUsers.find((u) => u.id === id)?.name || "Unassigned";
 }
 
 function displayDate(value?: string): string {
@@ -124,15 +149,15 @@ function productionCalendarEvents(requests: ProductionRequest[], includeChargeba
     );
 }
 
-function financeProductionChargebacks(): ProductionRequest[] {
-  return productionRequests
-    .filter((request) => request.status === "Accepted" && request.financeStatus !== "Chargeback requested")
+function financeProductionChargebacks(requests: ProductionRequest[]): ProductionRequest[] {
+  return requests
+    .filter((request) => request.status === "Accepted" && !request.chargebackRequestedAt)
     .sort((a, b) => new Date(a.shootDate).getTime() - new Date(b.shootDate).getTime());
 }
 
-function historicalProductionChargebacks(): ProductionRequest[] {
-  return productionRequests
-    .filter((request) => request.status === "Accepted" && request.financeStatus === "Chargeback requested")
+function historicalProductionChargebacks(requests: ProductionRequest[]): ProductionRequest[] {
+  return requests
+    .filter((request) => request.status === "Accepted" && Boolean(request.chargebackRequestedAt))
     .sort(
       (a, b) =>
         new Date(b.chargebackRequestedAt || b.shootDate).getTime() -
@@ -188,9 +213,13 @@ function ProductionCalendarEvents({ events, emptyMessage }: { events: CalendarEv
 function FinanceProductionChargebackCard({
   request,
   showAction = true,
+  onRequest,
+  busy = false,
 }: {
   request: ProductionRequest;
   showAction?: boolean;
+  onRequest?: (request: ProductionRequest) => void;
+  busy?: boolean;
 }) {
   return (
     <article className="deal">
@@ -222,8 +251,13 @@ function FinanceProductionChargebackCard({
       ) : null}
       {showAction ? (
         <div className="deal-actions">
-          <button className="primary" type="button" data-production-chargeback={request.id}>
-            Request charge back
+          <button
+            className="primary"
+            type="button"
+            disabled={busy}
+            onClick={() => onRequest?.(request)}
+          >
+            {busy ? "Requesting…" : "Request charge back"}
           </button>
         </div>
       ) : null}
@@ -235,8 +269,41 @@ function FinanceProductionChargebackCard({
 // Main view
 // ---------------------------------------------------------------------------
 export default function ProductionChargebacksView() {
-  const pending = financeProductionChargebacks();
-  const historical = historicalProductionChargebacks();
+  const { users } = useCreatorsTeam();
+  const { data: requestData = [], isLoading } = useGetProductionRequestsQuery();
+  const [requestChargeback, { isLoading: requesting }] = useRequestProductionChargebackMutation();
+  const confirm = useConfirm();
+  const toast = useToast();
+
+  liveUsers = users;
+
+  const productionRequests = requestData.map(toViewRequest);
+
+  const handleRequestChargeback = async (request: ProductionRequest) => {
+    const ok = await confirm({
+      tone: "default",
+      title: "Request charge back?",
+      confirmLabel: "Request charge back",
+      message: (
+        <>
+          <strong>{money(request.amount)}</strong> for {request.talentName}&rsquo;s shoot on{" "}
+          {displayDate(request.shootDate)} will be charged back to{" "}
+          <strong>{managerName(request.managerId)}</strong>&rsquo;s P&amp;L line. This moves it to the
+          historical list and cannot be undone here.
+        </>
+      ),
+    });
+    if (!ok) return;
+    try {
+      await requestChargeback(request.id).unwrap();
+      toast.success(`Charge back requested for ${request.talentName}.`);
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Could not request that charge back."));
+    }
+  };
+
+  const pending = financeProductionChargebacks(productionRequests);
+  const historical = historicalProductionChargebacks(productionRequests);
   const visibleRequests = productionRequests.filter((request) => request.status === "Accepted");
   const pendingTotal = pending.reduce((total, request) => total + Number(request.amount || 0), 0);
   const historicalTotal = historical.reduce((total, request) => total + Number(request.amount || 0), 0);
@@ -285,9 +352,18 @@ export default function ProductionChargebacksView() {
         </div>
         <div className="section-body manager-list">
           {pending.length ? (
-            pending.map((request) => <FinanceProductionChargebackCard key={request.id} request={request} />)
+            pending.map((request) => (
+              <FinanceProductionChargebackCard
+                key={request.id}
+                request={request}
+                onRequest={handleRequestChargeback}
+                busy={requesting}
+              />
+            ))
           ) : (
-            <div className="notice">No production chargebacks waiting right now.</div>
+            <div className="notice">
+              {isLoading ? "Loading…" : "No production chargebacks waiting right now."}
+            </div>
           )}
         </div>
       </section>

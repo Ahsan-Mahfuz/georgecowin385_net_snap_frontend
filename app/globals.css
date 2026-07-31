@@ -3121,3 +3121,382 @@ button.small,
   padding: 6px 12px;
   font-size: 13px;
 }
+
+/* ==========================================================================
+   Confirmation dialog — used for every destructive action (delete, reject,
+   irreversible finance steps). Matches the crm-detail-modal treatment.
+   ========================================================================== */
+
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(23, 34, 31, 0.44);
+  animation: overlayFadeIn 140ms ease-out;
+}
+
+.confirm-panel {
+  width: min(440px, 100%);
+  padding: 26px 26px 22px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+  box-shadow: 0 26px 70px rgba(23, 34, 31, 0.28);
+  text-align: center;
+  animation: confirmPanelIn 190ms ease-out;
+}
+
+.confirm-icon {
+  width: 46px;
+  height: 46px;
+  margin: 0 auto 14px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  font-size: 24px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.confirm-icon.is-danger {
+  background: var(--rose-soft);
+  color: var(--rose);
+}
+
+.confirm-icon.is-default {
+  background: var(--blue-soft);
+  color: var(--blue);
+}
+
+.confirm-panel h3 {
+  margin: 0 0 8px;
+  font-size: 19px;
+  font-weight: 900;
+  color: var(--ink);
+}
+
+.confirm-message {
+  margin: 0 0 20px;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.confirm-message strong {
+  color: var(--ink);
+}
+
+.confirm-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+/* .ghost is styled for the dark sidebar — restate it for the light dialog. */
+.confirm-actions .ghost {
+  min-height: 42px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+  font-weight: 800;
+}
+
+.confirm-actions .ghost:hover:not(:disabled) {
+  background: #f2f5f1;
+}
+
+.confirm-actions .primary,
+.confirm-actions .danger {
+  min-height: 42px;
+  border-radius: 8px;
+  font-weight: 800;
+  color: #fff;
+}
+
+.confirm-actions .primary {
+  background: var(--green);
+}
+
+.confirm-actions .danger {
+  background: var(--rose);
+}
+
+.confirm-actions .danger:hover:not(:disabled) {
+  background: #822727;
+}
+
+.confirm-actions button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+@keyframes confirmPanelIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* ==========================================================================
+   Toasts — confirmation feedback after a save / delete / API failure.
+   ========================================================================== */
+
+.toast-stack {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 70;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  pointer-events: none;
+}
+
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 260px;
+  max-width: min(420px, calc(100vw - 40px));
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-left-width: 4px;
+  border-radius: 10px;
+  background: var(--panel);
+  box-shadow: 0 14px 40px rgba(23, 34, 31, 0.2);
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 700;
+  pointer-events: auto;
+  animation: toastIn 200ms ease-out;
+}
+
+.toast-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+
+.toast-success { border-left-color: var(--green); }
+.toast-success .toast-dot { background: var(--green); }
+.toast-error { border-left-color: var(--rose); }
+.toast-error .toast-dot { background: var(--rose); }
+.toast-info { border-left-color: var(--blue); }
+.toast-info .toast-dot { background: var(--blue); }
+
+.toast-close {
+  margin-left: auto;
+  padding: 0 2px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 20px;
+  line-height: 1;
+  font-weight: 800;
+}
+
+.toast-close:hover {
+  color: var(--ink);
+}
+
+@keyframes toastIn {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 560px) {
+  .toast-stack {
+    right: 12px;
+    left: 12px;
+    bottom: 12px;
+  }
+  .toast { max-width: none; }
+}
+
+/* ==========================================================================
+   Overheads model table — replaces the inline styles the view used to carry.
+   ========================================================================== */
+
+.overheads-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.overheads-table th,
+.overheads-table td {
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+.overheads-table th {
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  text-align: left;
+}
+
+.overheads-table .numeric {
+  text-align: right;
+}
+
+.overheads-table .row-label {
+  font-weight: 700;
+  min-width: 190px;
+  white-space: normal;
+}
+
+.overheads-table .row-label small {
+  display: block;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.overheads-table .strong {
+  font-weight: 800;
+}
+
+.overheads-table .locked-row {
+  background: #fafbfa;
+  color: var(--muted);
+}
+
+.overheads-table .total-row {
+  background: var(--green-soft);
+  color: var(--green);
+  font-weight: 800;
+}
+
+.overheads-table .total-row td {
+  border-bottom: 0;
+}
+
+.overhead-cell {
+  width: 88px;
+  padding: 5px 7px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  text-align: right;
+  background: #fff;
+}
+
+.overhead-cell:hover {
+  border-color: var(--green);
+}
+
+.muted-note {
+  color: var(--muted);
+  font-size: 12px;
+  font-style: italic;
+}
+
+/* Small "label + button" form used under a table. */
+.inline-add-form {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.inline-add-form .field {
+  flex: 1 1 260px;
+  margin: 0;
+}
+
+.inline-add-form .primary {
+  min-height: 42px;
+  padding: 0 20px;
+}
+
+/* --------------------------------------------------------------------------
+   Wide tables scroll horizontally; pin the label column so a scrolled row is
+   still identifiable. Without this the overheads model reads as a wall of
+   numbers with no row names.
+   -------------------------------------------------------------------------- */
+
+.overheads-table th:first-child,
+.overheads-table td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--panel);
+  box-shadow: 1px 0 0 var(--line);
+}
+
+.overheads-table thead th:first-child {
+  z-index: 2;
+}
+
+.overheads-table .locked-row td:first-child {
+  background: #fafbfa;
+}
+
+.overheads-table .total-row td:first-child {
+  background: var(--green-soft);
+}
+
+/* Give the scroll container a visible edge so it reads as scrollable. */
+.table-wrap {
+  scrollbar-width: thin;
+}
+
+.table-wrap::-webkit-scrollbar {
+  height: 10px;
+}
+
+.table-wrap::-webkit-scrollbar-thumb {
+  background: #cdd6da;
+  border-radius: 6px;
+}
+
+.table-wrap::-webkit-scrollbar-thumb:hover {
+  background: #b3bfc5;
+}
+
+.table-wrap::-webkit-scrollbar-track {
+  background: #f1f4f2;
+  border-radius: 6px;
+}
+
+/* Pin the first column on every horizontally-scrolling table, not just the
+   overheads model. Has no visual effect until the table actually scrolls. */
+.table-wrap table thead th:first-child,
+.table-wrap table tbody td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--panel);
+  box-shadow: 1px 0 0 var(--line);
+}
+
+.table-wrap table thead th:first-child {
+  z-index: 2;
+  background: #f7faf8;
+}
+
+/* Keep row highlights readable behind the pinned cell. */
+.table-wrap table tbody tr.selected-row td:first-child,
+.table-wrap table tbody tr.active-row td:first-child {
+  background: var(--green-soft);
+}
+
+.table-wrap table tbody tr.payment-run-row td:first-child {
+  background: #eef3ed;
+}

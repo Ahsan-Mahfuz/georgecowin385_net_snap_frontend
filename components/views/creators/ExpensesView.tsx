@@ -5,12 +5,16 @@ import { months, money, sum } from "@/lib/format";
 import { useCreatorsTeam } from "@/hooks/useCreatorsTeam";
 import { useGetExpensesQuery, useCreateExpenseMutation, useDeleteExpenseMutation } from "@/redux/api/expenseApi";
 import { refId } from "@/lib/adapters";
+import { useConfirm } from "@/components/ui/ConfirmProvider";
+import { apiErrorMessage, useToast } from "@/components/ui/Toast";
 
 export default function ExpensesView() {
   const { managers, users } = useCreatorsTeam();
   const { data: expenses = [] } = useGetExpensesQuery({ kind: "general" });
-  const [createExpense] = useCreateExpenseMutation();
+  const [createExpense, { isLoading: saving }] = useCreateExpenseMutation();
   const [deleteExpense] = useDeleteExpenseMutation();
+  const confirm = useConfirm();
+  const toast = useToast();
 
   const managerName = (id: string) => users.find((u) => u.id === id)?.name || "-";
 
@@ -26,16 +30,48 @@ export default function ExpensesView() {
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.note.trim()) return;
-    await createExpense({
-      kind: "general",
-      label: form.category,
-      manager: form.managerId || undefined,
-      amount: Number(form.amount) || 0,
-      monthIndex: form.monthIndex,
-      note: form.note,
+    const note = form.note.trim();
+    const amount = Number(form.amount);
+    if (!note) return toast.error("Add a note so the expense can be identified.");
+    if (!Number.isFinite(amount) || amount <= 0) return toast.error("Enter an amount greater than zero.");
+    try {
+      await createExpense({
+        kind: "general",
+        label: form.category,
+        manager: form.managerId || undefined,
+        amount,
+        monthIndex: form.monthIndex,
+        note,
+      }).unwrap();
+      toast.success(`${form.category} expense of ${money(amount)} added.`);
+      setForm({ ...form, amount: "", note: "" });
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Could not add that expense."));
+    }
+  };
+
+  const handleRemove = async (expense: { _id: string; label: string; amount: number; note?: string }) => {
+    const ok = await confirm({
+      tone: "danger",
+      title: "Remove expense?",
+      confirmLabel: "Remove expense",
+      message: (
+        <>
+          <strong>
+            {expense.label} &middot; {money(expense.amount)}
+          </strong>
+          {expense.note ? ` (${expense.note})` : ""} will be deleted and removed from the P&L. This
+          cannot be undone.
+        </>
+      ),
     });
-    setForm({ ...form, amount: "", note: "" });
+    if (!ok) return;
+    try {
+      await deleteExpense(expense._id).unwrap();
+      toast.success("Expense removed.");
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Could not remove that expense."));
+    }
   };
 
   return (
@@ -87,7 +123,7 @@ export default function ExpensesView() {
                 <label htmlFor="expenseNote">Note</label>
                 <input id="expenseNote" required value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} placeholder="What was it for?" />
               </div>
-              <button className="primary wide" type="submit">Add expense</button>
+              <button className="primary wide" type="submit" disabled={saving}>{saving ? "Adding…" : "Add expense"}</button>
             </form>
           </div>
         </section>
@@ -130,7 +166,7 @@ export default function ExpensesView() {
                   <div className="deal-line muted"><span>Month</span><span>{months[expense.monthIndex]}</span></div>
                   <div className="deal-line muted"><span>Note</span><span>{expense.note}</span></div>
                   <div className="deal-actions">
-                    <button className="secondary danger-button small" type="button" onClick={() => deleteExpense(expense._id)}>Remove</button>
+                    <button className="secondary danger-button small" type="button" onClick={() => handleRemove(expense)}>Remove</button>
                   </div>
                 </article>
               ))

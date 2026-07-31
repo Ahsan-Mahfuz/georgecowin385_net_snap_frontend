@@ -52,6 +52,16 @@ export function CreatorsShell({ children }: { children: React.ReactNode }) {
   const activeView = pathname.split("/").filter(Boolean)[1] || views[0]?.id;
   const managerId = user?.role === "manager" ? user.id : null;
 
+  // Route-level guard. The sidebar only renders permitted links, but the route is
+  // still reachable by typing the URL — without this a manager could open
+  // /creators/permissions or the company-wide P&L. Bounce them to their first view.
+  const viewAllowed = !activeView || views.some((v) => v.id === activeView);
+  useEffect(() => {
+    if (hydrated && user && !viewAllowed && views[0]) {
+      router.replace(`/creators/${views[0].id}`);
+    }
+  }, [hydrated, user, viewAllowed, views, router]);
+
   const { data: leadData = [] } = useGetEmailLeadsQuery(managerId ? { manager: managerId } : undefined);
   const { data: dealData = [] } = useGetDealsQuery();
   const { data: settings } = useGetSettingsQuery();
@@ -70,6 +80,8 @@ export function CreatorsShell({ children }: { children: React.ReactNode }) {
   const totalActions = views.reduce((total, v) => total + actionCountForView(v.id, leads), 0);
 
   if (!hydrated || !user) return null;
+  // Hold the frame while the guard above redirects, so a disallowed view never paints.
+  if (!viewAllowed) return null;
 
   return (
     <div className={`shell ${menuOpen ? "menu-open" : ""}`}>

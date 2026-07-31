@@ -4,20 +4,28 @@ import { useState } from "react";
 import { months, money, sum } from "@/lib/format";
 import { Deal } from "@/lib/mock";
 import { useCreatorsTeam } from "@/hooks/useCreatorsTeam";
-import { useGetTalentsQuery } from "@/redux/api/talentApi";
+import {
+  useGetTalentsQuery,
+  useCreateTalentMutation,
+  useUpdateTalentMutation,
+  useDeleteTalentMutation,
+} from "@/redux/api/talentApi";
 import { useGetDealsQuery } from "@/redux/api/dealApi";
-import { toDeal, talentNamesForManager } from "@/lib/adapters";
+import { toDeal, refId } from "@/lib/adapters";
 import type { ApiTalent } from "@/redux/api/types";
+import { useConfirm } from "@/components/ui/ConfirmProvider";
+import { apiErrorMessage, useToast } from "@/components/ui/Toast";
 
 // This view reproduces the prototype's talentAdminView (admin / full-roster variant).
-// UI only — mutating buttons and inputs render for fidelity but are no-ops.
 
 const ADMIN_EDITABLE = true; // role === "admin" => canAdminister
 
 interface RosterRow {
   key: string;
+  id: string; // Talent._id — needed to transfer or remove the record
   managerId: string;
   talentName: string;
+  email: string;
   total: number;
 }
 
@@ -58,20 +66,19 @@ function managerName(id: string): string {
   return liveUsers.find((u) => u.id === id)?.name || "Unassigned";
 }
 
-function talentOptions(managerId: string): string[] {
-  return talentNamesForManager(liveTalents, managerId);
-}
-
 function rosterRowsForManager(managerId: string): RosterRow[] {
-  return talentOptions(managerId)
-    .map((talentName) => {
+  return liveTalents
+    .filter((t) => refId(t.manager) === managerId)
+    .map((talent) => {
       const submittedDeals = liveDeals.filter(
-        (deal) => deal.managerId === managerId && deal.talentName === talentName,
+        (deal) => deal.managerId === managerId && deal.talentName === talent.name,
       );
       return {
-        key: talentKey(managerId, talentName),
+        key: talentKey(managerId, talent.name),
+        id: talent._id,
         managerId,
-        talentName,
+        talentName: talent.name,
+        email: talent.email || "",
         total: submittedDeals.reduce((total, deal) => total + sum(deal.monthValues), 0),
       };
     })
@@ -434,6 +441,15 @@ export default function TalentView() {
   const { data: dealData = [] } = useGetDealsQuery();
   const allDeals: Deal[] = dealData.map(toDeal);
 
+  const confirm = useConfirm();
+  const toast = useToast();
+  const [createTalent, { isLoading: creating }] = useCreateTalentMutation();
+  const [updateTalent] = useUpdateTalentMutation();
+  const [deleteTalent] = useDeleteTalentMutation();
+  const [newTalentName, setNewTalentName] = useState("");
+  const [newTalentEmail, setNewTalentEmail] = useState("");
+  const [newTalentManager, setNewTalentManager] = useState("");
+
   // Publish live data to the module-level helpers before rendering children.
   liveUsers = users;
   liveTalents = talentData as ApiTalent[];
@@ -461,7 +477,104 @@ export default function TalentView() {
       )
     : [];
 
-  const addTalentDefaultManager = allSelected ? "amelia" : effectiveManagerId;
+  const addTalentDefaultManager =
+    newTalentManager || (allSelected ? managers[0]?.id || "" : effectiveManagerId);
+
+  const handleAddTalent = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const name = newTalentName.trim();
+    if (!name) return toast.error("Enter a talent name.");
+    if (!addTalentDefaultManager) return toast.error("Add a talent manager to the team first.");
+    // Names key the deal/commission joins, so a duplicate on the same roster would
+    // silently merge two people's revenue.
+    const clash = liveTalents.some(
+      (t) =>
+        refId(t.manager) === addTalentDefaultManager &&
+        t.name.trim().toLowerCase() === name.toLowerCase(),
+    );
+    if (clash) return toast.error(`${name} is already on this manager's roster.`);
+    try {
+      await createTalent({
+        name,
+        email: newTalentEmail.trim() || undefined,
+        manager: addTalentDefaultManager,
+      }).unwrap();
+      toast.success(`${name} added to the roster.`);
+      setNewTalentName("");
+      setNewTalentEmail("");
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Could not add talent."));
+    }
+  };
+
+  // Saved on blur — a per-row Save button in every roster line would be noisier
+  // than it is useful, and the field is a single value with no dependent state.
+  const handleEmailSave = async (row: RosterRow, rawEmail: string) => {
+    const email = rawEmail.trim();
+    if (email === row.email) return;
+    try {
+      await updateTalent({ id: row.id, body: { email } }).unwrap();
+      toast.success(email ? `Saved email for ${row.talentName}.` : `Cleared email for ${row.talentName}.`);
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Could not save that email."));
+    }
+  };
+
+  const handleTransfer = async (row: RosterRow, toManagerId: string) => {
+    if (!toManagerId || toManagerId === row.managerId) return;
+    const ok = await confirm({
+      tone: "default",
+      title: "Transfer talent?",
+      confirmLabel: "Transfer",
+      message: (
+        <>
+          Move <strong>{row.talentName}</strong> from {managerName(row.managerId)} to{" "}
+          <strong>{managerName(toManagerId)}</strong>. Revenue already submitted stays with the
+          original manager for commission.
+        </>
+      ),
+    });
+    if (!ok) return;
+    try {
+      await updateTalent({ id: row.id, body: { manager: toManagerId } }).unwrap();
+      toast.success(`${row.talentName} moved to ${managerName(toManagerId)}.`);
+      setSelectedTalentKey(null);
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Could not transfer talent."));
+    }
+  };
+
+  const handleRemove = async (row: RosterRow) => {
+    const dealCount = liveDeals.filter(
+      (d) => d.managerId === row.managerId && d.talentName === row.talentName,
+    ).length;
+    const ok = await confirm({
+      tone: "danger",
+      title: "Remove talent?",
+      confirmLabel: "Remove talent",
+      message: (
+        <>
+          <strong>{row.talentName}</strong> will be removed from {managerName(row.managerId)}&rsquo;s
+          roster and will no longer appear in deal or media pack dropdowns.
+          {dealCount > 0 ? (
+            <>
+              {" "}
+              Their <strong>{dealCount} submitted deal{dealCount === 1 ? "" : "s"}</strong> stay in the
+              P&amp;L and reports.
+            </>
+          ) : null}
+        </>
+      ),
+    });
+    if (!ok) return;
+    try {
+      await deleteTalent(row.id).unwrap();
+      toast.success(`${row.talentName} removed from the roster.`);
+      if (selectedTalentKey === row.key) setSelectedTalentKey(null);
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Could not remove talent."));
+    }
+  };
 
   return (
     <>
@@ -527,18 +640,24 @@ export default function TalentView() {
                         </td>
                         <td>
                           <input
+                            key={`${row.id}-${row.email}`}
                             className="mini-input"
-                            data-talent-email={row.key}
                             type="email"
-                            defaultValue={talentEmail()}
+                            defaultValue={row.email}
                             placeholder="talent@email.com"
                             aria-label={`${row.talentName} email`}
+                            onBlur={(event) => handleEmailSave(row, event.target.value)}
                           />
                         </td>
                         <td>{managerName(row.managerId)}</td>
                         <td>{money(row.total)}</td>
                         <td>
-                          <select className="compact-select" data-transfer-talent={row.key} defaultValue={row.managerId}>
+                          <select
+                            className="compact-select"
+                            aria-label={`Transfer ${row.talentName} to another manager`}
+                            value={row.managerId}
+                            onChange={(event) => handleTransfer(row, event.target.value)}
+                          >
                             {managers.map((manager) => (
                               <option key={manager.id} value={manager.id}>
                                 {manager.name}
@@ -547,7 +666,11 @@ export default function TalentView() {
                           </select>
                         </td>
                         <td>
-                          <button className="secondary danger-button" data-remove-talent={row.key}>
+                          <button
+                            className="secondary danger-button"
+                            type="button"
+                            onClick={() => handleRemove(row)}
+                          >
                             Remove talent
                           </button>
                         </td>
@@ -569,27 +692,50 @@ export default function TalentView() {
               <h2>Add talent</h2>
             </div>
             <div className="section-body">
-              <form className="talent-form">
+              <form className="talent-form" onSubmit={handleAddTalent}>
                 <div className="field">
                   <label htmlFor="adminAddTalentManager">Talent manager</label>
-                  <select id="adminAddTalentManager" name="managerId" defaultValue={addTalentDefaultManager}>
-                    {managers.map((manager) => (
-                      <option key={manager.id} value={manager.id}>
-                        {manager.name}
-                      </option>
-                    ))}
+                  <select
+                    id="adminAddTalentManager"
+                    name="managerId"
+                    value={addTalentDefaultManager}
+                    onChange={(event) => setNewTalentManager(event.target.value)}
+                  >
+                    {managers.length ? (
+                      managers.map((manager) => (
+                        <option key={manager.id} value={manager.id}>
+                          {manager.name}
+                        </option>
+                      ))
+                    ) : (
+                      <option value="">No talent managers on the team yet</option>
+                    )}
                   </select>
                 </div>
                 <div className="field">
                   <label htmlFor="newTalentNameAdmin">Talent name</label>
-                  <input id="newTalentNameAdmin" name="talentName" required placeholder="Talent name" />
+                  <input
+                    id="newTalentNameAdmin"
+                    name="talentName"
+                    required
+                    placeholder="Talent name"
+                    value={newTalentName}
+                    onChange={(event) => setNewTalentName(event.target.value)}
+                  />
                 </div>
                 <div className="field">
                   <label htmlFor="newTalentEmailAdmin">Talent email</label>
-                  <input id="newTalentEmailAdmin" name="talentEmail" type="email" placeholder="talent@email.com" />
+                  <input
+                    id="newTalentEmailAdmin"
+                    name="talentEmail"
+                    type="email"
+                    placeholder="talent@email.com"
+                    value={newTalentEmail}
+                    onChange={(event) => setNewTalentEmail(event.target.value)}
+                  />
                 </div>
-                <button className="primary" type="submit" onClick={(event) => event.preventDefault()}>
-                  Add talent
+                <button className="primary" type="submit" disabled={creating || !managers.length}>
+                  {creating ? "Adding…" : "Add talent"}
                 </button>
               </form>
               <div className="notice soft-note">
