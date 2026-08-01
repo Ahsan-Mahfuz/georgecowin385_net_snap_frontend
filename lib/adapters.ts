@@ -62,10 +62,19 @@ export function toDeal(d: ApiDeal): Deal {
     signedMonthIndex: d.signedMonthIndex,
     currency: d.useUSD ? "USD" : d.currency || "GBP",
     poNumber: d.poNumber,
+    xeroContactId: d.xeroContactId,
+    xeroContactName: d.xeroContactName,
     xeroInvoiceId: d.xeroInvoiceId,
+    xeroInvoiceNumber: d.xeroInvoiceNumber,
     xeroStatus: d.xeroStatus,
+    xeroState: d.xeroState,
+    xeroDueDate: d.xeroDueDate,
     financeStatus: d.financeStatus,
     invoiceDate: d.invoiceDate,
+    remittanceStatus: d.remittanceStatus,
+    xeroBillId: d.xeroBillId,
+    xeroBillNumber: d.xeroBillNumber,
+    xeroBillState: d.xeroBillState,
   };
 }
 

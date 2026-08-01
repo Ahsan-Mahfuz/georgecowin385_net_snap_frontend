@@ -61,15 +61,41 @@ export interface ApiDeal {
   currency: "GBP" | "USD";
   poNumber?: string;
   xeroOrg: string;
+  xeroContactId?: string;
+  xeroContactName?: string;
   xeroInvoiceId: string;
+  xeroInvoiceNumber?: string;
   xeroStatus: string;
+  /** Raw Xero status: DRAFT | SUBMITTED | AUTHORISED | PAID | VOIDED. */
+  xeroState?: string;
+  xeroDueDate?: string;
   invoiceDate?: string;
   financeStatus: string;
   remittanceStatus?: string;
   remittanceSentAt?: string;
   remittancePaidAt?: string;
+  xeroBillId?: string;
+  xeroBillNumber?: string;
+  xeroBillStatus?: string;
+  xeroBillState?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+/** A contact that already exists in the connected Xero organisation. */
+export interface ApiXeroContact {
+  contactId: string;
+  name: string;
+  email: string;
+  address: string;
+}
+
+export interface ApiXeroSync {
+  checked: number;
+  invoiced: string[];
+  paid: string[];
+  billsPaid?: string[];
+  errors: string[];
 }
 
 export interface ApiProductionItem {

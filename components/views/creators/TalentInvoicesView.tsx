@@ -4,10 +4,17 @@ import { Fragment, useState } from "react";
 import { months, money, currentMonthIndex } from "@/lib/format";
 import { useCreatorsTeam } from "@/hooks/useCreatorsTeam";
 import { useGetTalentsQuery } from "@/redux/api/talentApi";
-import { useGetDealsQuery, useMarkDealTalentPaidMutation, useSendDealRemittanceMutation } from "@/redux/api/dealApi";
+import {
+  useGetDealsQuery,
+  useMarkDealTalentPaidMutation,
+  useSendDealRemittanceMutation,
+  useCreateTalentBillMutation,
+} from "@/redux/api/dealApi";
 import { useGetExpensesQuery } from "@/redux/api/expenseApi";
 import { refId } from "@/lib/adapters";
 import type { ApiDeal, ApiExpense } from "@/redux/api/types";
+import { useConfirm } from "@/components/ui/ConfirmProvider";
+import { apiErrorMessage, useToast } from "@/components/ui/Toast";
 
 // ---- local helpers mirrored from the prototype (app.js) ----------------------
 
@@ -64,6 +71,9 @@ interface TalentInvoice {
   paidAt: string; // set when every line's remittance is Paid
   remittanceSent: boolean;
   dealIds: string[];
+  /** The Xero bill (ACCPAY) that pays this invoice, once one has been raised. */
+  billNumber: string;
+  billState: string;
   lines: InvoiceLine[];
   totalDealShare: number;
   totalExpenses: number;
@@ -148,6 +158,8 @@ function buildInvoices(deals: ApiDeal[], expenses: ApiExpense[]): TalentInvoice[
       paidAt: allPaid ? latestPaidAt || paymentRunOf(groupDeals[0]) : "",
       remittanceSent: anySent,
       dealIds: groupDeals.map((d) => d._id),
+      billNumber: groupDeals.find((d) => d.xeroBillNumber)?.xeroBillNumber || "",
+      billState: groupDeals.find((d) => d.xeroBillState)?.xeroBillState || "",
       lines,
       totalDealShare,
       totalExpenses,
@@ -207,6 +219,9 @@ export default function TalentInvoicesView() {
   const { data: expenseData = [] } = useGetExpensesQuery();
   const [sendRemittance] = useSendDealRemittanceMutation();
   const [markTalentPaid] = useMarkDealTalentPaidMutation();
+  const [createTalentBill, { isLoading: billing }] = useCreateTalentBillMutation();
+  const confirm = useConfirm();
+  const toast = useToast();
   const managerName = (id: string) => users.find((u) => u.id === id)?.name || "Unassigned";
 
   const [selectedTalentKey, setSelectedTalentKey] = useState<string>("all");
@@ -253,6 +268,37 @@ export default function TalentInvoicesView() {
   };
 
   const onMarkLinePaid = (dealId: string) => markTalentPaid(dealId);
+
+  /**
+   * Send the talent invoice to Xero as a draft **bill**. Once that bill is paid
+   * in Xero the sync marks this invoice — and the reports — as paid.
+   */
+  const onSendToXero = async (invoice: TalentInvoice) => {
+    const ok = await confirm({
+      tone: "default",
+      title: "Send to Xero as a draft bill?",
+      confirmLabel: "Create draft bill",
+      message: (
+        <>
+          A draft bill for <strong>{money(invoice.total)}</strong> payable to{" "}
+          <strong>{invoice.talentName}</strong> will be created in the Cowshed Creators Xero
+          organisation. It stays a draft until someone approves it there; paying it in Xero marks this
+          invoice as paid here.
+        </>
+      ),
+    });
+    if (!ok) return;
+    try {
+      const result = await createTalentBill({
+        dealIds: invoice.dealIds,
+        talentName: invoice.talentName,
+        amount: invoice.total,
+      }).unwrap();
+      toast.success(result?.status || "Draft bill created in Xero.");
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Could not create that bill in Xero."));
+    }
+  };
 
   return (
     <>
@@ -403,6 +449,8 @@ export default function TalentInvoicesView() {
               onSendRemittance={onSendRemittance}
               onMarkInvoicePaid={onMarkInvoicePaid}
               onMarkLinePaid={onMarkLinePaid}
+              onSendToXero={onSendToXero}
+              billing={billing}
             />
           ) : (
             <div className="section-body">
@@ -423,11 +471,15 @@ function TalentInvoiceDetail({
   onSendRemittance,
   onMarkInvoicePaid,
   onMarkLinePaid,
+  onSendToXero,
+  billing,
 }: {
   invoice: TalentInvoice;
   onSendRemittance: (invoice: TalentInvoice) => void;
   onMarkInvoicePaid: (invoice: TalentInvoice) => void;
   onMarkLinePaid: (dealId: string) => void;
+  onSendToXero: (invoice: TalentInvoice) => void;
+  billing: boolean;
 }) {
   const details = invoice.details;
   return (
@@ -464,10 +516,26 @@ function TalentInvoiceDetail({
             <span>Remittance</span>
             <strong>{invoice.paidAt ? "Paid" : invoice.remittanceSent ? "Sent" : "Not sent"}</strong>
           </div>
+          <div>
+            <span>Xero bill</span>
+            <strong>{invoice.billNumber || "Not raised"}</strong>
+          </div>
         </div>
       </div>
 
       <div className="section-body">
+        <div className="invoice-action-row">
+          <div className="notice soft-note">
+            {invoice.billNumber
+              ? `Bill ${invoice.billNumber} is in Xero${invoice.billState ? ` (${invoice.billState})` : ""}. Paying it there marks this invoice paid here.`
+              : "Send this invoice to Xero as a draft bill, then approve and pay it in Xero."}
+          </div>
+          {!invoice.paidAt && !invoice.billNumber ? (
+            <button className="primary" type="button" onClick={() => onSendToXero(invoice)} disabled={billing}>
+              {billing ? "Sending to Xero…" : "Send to Xero as draft bill"}
+            </button>
+          ) : null}
+        </div>
         <div className="invoice-action-row">
           <div className="notice soft-note">
             {invoice.remittanceSent

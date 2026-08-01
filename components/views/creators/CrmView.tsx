@@ -12,6 +12,7 @@ import {
   useCreateDealMutation,
   useUpdateDealMutation,
   useDeleteDealMutation,
+  useGetXeroContactsQuery,
 } from "@/redux/api/dealApi";
 import { toDeal, talentNamesForManager } from "@/lib/adapters";
 import type { ApiDeal, ApiTalent } from "@/redux/api/types";
@@ -37,6 +38,8 @@ export default function CrmView() {
   const [createDeal, { isLoading: creating }] = useCreateDealMutation();
   const [updateDeal, { isLoading: updating }] = useUpdateDealMutation();
   const [deleteDeal] = useDeleteDealMutation();
+  // Empty when Xero is not connected — the field then behaves as free text.
+  const { data: xeroContacts = [] } = useGetXeroContactsQuery("creators");
   const confirm = useConfirm();
   const toast = useToast();
 
@@ -71,6 +74,7 @@ export default function CrmView() {
     xeroTaxRate: "No VAT",
     contractUrl: "",
     noContract: false,
+    xeroContactId: "",
   });
 
   // The board is keyed on `stage` alone — the same field the P&L scopes on — so
@@ -110,6 +114,23 @@ export default function CrmView() {
     xeroTaxRate: "No VAT",
     contractUrl: "",
     noContract: false,
+    xeroContactId: "",
+  };
+
+  /**
+   * Picking a contact that already exists in Xero is what stops a brand becoming
+   * a brand-new contact on every deal — and it brings the billing email and
+   * address across so Finance is not chasing them later.
+   */
+  const applyContact = (name: string) => {
+    const match = xeroContacts.find((c) => c.name.toLowerCase() === name.trim().toLowerCase());
+    setForm((current) => ({
+      ...current,
+      companyName: name,
+      xeroContactId: match?.contactId || "",
+      emailAddresses: match?.email || current.emailAddresses,
+      companyAddress: match?.address || current.companyAddress,
+    }));
   };
 
   const openAddPanel = () => {
@@ -141,6 +162,7 @@ export default function CrmView() {
       xeroTaxRate: deal.xeroTaxRate || "No VAT",
       contractUrl: deal.contractUrl || "",
       noContract: Boolean(deal.noContract),
+      xeroContactId: deal.xeroContactId || "",
     });
     setEditingId(deal.id);
     setAddOpen(true);
@@ -259,6 +281,9 @@ export default function CrmView() {
       noContract: form.noContract,
       currency: form.useUSD ? "USD" : "GBP",
       company: form.companyName.trim(),
+      // Empty means "new brand" — Xero will create the contact from the details above.
+      xeroContactId: form.xeroContactId,
+      xeroContactName: form.companyName.trim(),
     };
 
     try {
@@ -498,8 +523,31 @@ export default function CrmView() {
                 </div>
 
                 <div className="field">
-                  <label htmlFor="crmCompanyName">Company name</label>
-                  <input id="crmCompanyName" value={form.companyName} onChange={(e) => setForm({ ...form, companyName: e.target.value })} placeholder="Brand or agency" />
+                  <label htmlFor="crmCompanyName">Brand / Xero contact</label>
+                  <input
+                    id="crmCompanyName"
+                    list="crm-xero-contacts"
+                    value={form.companyName}
+                    onChange={(e) => applyContact(e.target.value)}
+                    placeholder="Choose an existing contact, or type a new brand"
+                  />
+                  <datalist id="crm-xero-contacts">
+                    {xeroContacts.map((c) => (
+                      <option value={c.name} key={c.contactId} />
+                    ))}
+                  </datalist>
+                  {form.xeroContactId ? (
+                    <small className="field-hint contact-matched">
+                      Existing Xero contact — the invoice will be raised against it.
+                    </small>
+                  ) : form.companyName.trim() ? (
+                    <small className="field-hint">
+                      New contact. It will be created in Xero with the email address and company
+                      address below.
+                    </small>
+                  ) : xeroContacts.length ? (
+                    <small className="field-hint">{xeroContacts.length} contacts available from Xero.</small>
+                  ) : null}
                 </div>
 
                 <div className="field">

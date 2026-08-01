@@ -44,10 +44,21 @@ export interface Deal {
   signedMonthIndex?: number;
   currency?: "GBP" | "USD";
   poNumber?: string;
+  /** Chosen Xero contact — avoids creating a duplicate brand contact. */
+  xeroContactId?: string;
+  xeroContactName?: string;
   xeroInvoiceId?: string;
+  xeroInvoiceNumber?: string;
   xeroStatus?: string;
+  /** Raw Xero status: DRAFT | SUBMITTED | AUTHORISED | PAID | VOIDED. */
+  xeroState?: string;
+  xeroDueDate?: string;
   financeStatus?: string;
   invoiceDate?: string;
+  remittanceStatus?: string;
+  xeroBillId?: string;
+  xeroBillNumber?: string;
+  xeroBillState?: string;
 }
 
 export interface OverheadRow {

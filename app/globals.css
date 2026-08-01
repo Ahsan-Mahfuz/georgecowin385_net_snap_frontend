@@ -3720,6 +3720,30 @@ button.small,
   }
 }
 
+/* A finance action card opens the CRM deal behind it — the whole body is the
+   button, so it must not look like one. */
+.finance-action-open {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.finance-action-open:hover .deal-line strong {
+  text-decoration: underline;
+}
+
+/* The brand field found a contact that already exists in Xero. */
+.contact-matched {
+  color: var(--green);
+  font-weight: 800;
+}
+
 /* Delegation controls on PR / Event request cards. */
 .delegate-control {
   display: flex;

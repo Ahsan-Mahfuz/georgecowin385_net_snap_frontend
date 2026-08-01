@@ -14,13 +14,25 @@ import { money, months, currentMonthIndex } from "@/lib/format";
 import { dealRevenue } from "@/lib/pl";
 import { useGetEmailLeadsQuery } from "@/redux/api/emailLeadApi";
 import { useGetDealsQuery } from "@/redux/api/dealApi";
+import { useGetApprovalsQuery } from "@/redux/api/approvalApi";
 import { useGetSettingsQuery } from "@/redux/api/settingsApi";
 import { toEmailLead, toDeal } from "@/lib/adapters";
 
-function actionCountForView(viewId: string, leads: EmailLead[]): number {
+/**
+ * How many things need doing on each screen. These drive the numbered badge in
+ * the sidebar so nobody has to open a page to discover there is work waiting.
+ */
+function actionCountForView(
+  viewId: string,
+  leads: EmailLead[],
+  pendingApprovals: number,
+  financeActions: number,
+): number {
   if (viewId === "email-leads") return leads.filter((l) => l.category === "Deal").length;
   if (viewId === "pr-requests") return leads.filter((l) => l.category === "PR").length;
   if (viewId === "events") return leads.filter((l) => l.category === "Event").length;
+  if (viewId === "approvals") return pendingApprovals;
+  if (viewId === "finance-actions") return financeActions;
   return 0;
 }
 
@@ -64,10 +76,28 @@ export function CreatorsShell({ children }: { children: React.ReactNode }) {
 
   const { data: leadData = [] } = useGetEmailLeadsQuery(managerId ? { manager: managerId } : undefined);
   const { data: dealData = [] } = useGetDealsQuery();
+  const { data: approvalData = [] } = useGetApprovalsQuery();
   const { data: settings } = useGetSettingsQuery();
 
   const leads = useMemo(() => leadData.map(toEmailLead), [leadData]);
   const deals = useMemo(() => dealData.map(toDeal), [dealData]);
+
+  // Anything waiting on a person, surfaced as a number on the sidebar link.
+  const pendingApprovals = useMemo(
+    () => approvalData.filter((a) => a.status === "pending").length,
+    [approvalData],
+  );
+  const financeActions = useMemo(
+    () =>
+      deals.filter(
+        (d) =>
+          // Waiting for a draft, or a draft waiting to be sent/reconciled.
+          (d.stage === "To Be Invoiced" && !d.xeroInvoiceId) ||
+          (Boolean(d.xeroInvoiceId) && d.financeStatus !== "Paid") ||
+          (d.financeStatus === "Paid" && d.remittanceStatus !== "Paid"),
+      ).length,
+    [deals],
+  );
 
   const monthIndex = currentMonthIndex();
   const target = Number(settings?.targets?.[monthIndex] || 0);
@@ -77,7 +107,10 @@ export function CreatorsShell({ children }: { children: React.ReactNode }) {
   );
   const targetMet = confirmed >= target;
 
-  const totalActions = views.reduce((total, v) => total + actionCountForView(v.id, leads), 0);
+  const totalActions = views.reduce(
+    (total, v) => total + actionCountForView(v.id, leads, pendingApprovals, financeActions),
+    0,
+  );
 
   if (!hydrated || !user) return null;
   // Hold the frame while the guard above redirects, so a disallowed view never paints.
@@ -128,7 +161,7 @@ export function CreatorsShell({ children }: { children: React.ReactNode }) {
         </div>
         <nav className="nav">
           {views.map((view) => {
-            const count = actionCountForView(view.id, leads);
+            const count = actionCountForView(view.id, leads, pendingApprovals, financeActions);
             // The P&L link carries the selected financial year so it stays in sync.
             const label = view.id === "pl-live" ? `P&L ${selectedYear}` : view.label;
             return (
