@@ -10,7 +10,7 @@ import {
   useUpdateTalentMutation,
   useDeleteTalentMutation,
 } from "@/redux/api/talentApi";
-import { useGetDealsQuery } from "@/redux/api/dealApi";
+import { useGetDealsQuery, useGetXeroContactsQuery } from "@/redux/api/dealApi";
 import { toDeal, refId } from "@/lib/adapters";
 import type { ApiTalent } from "@/redux/api/types";
 import { useConfirm } from "@/components/ui/ConfirmProvider";
@@ -27,6 +27,10 @@ interface RosterRow {
   talentName: string;
   email: string;
   total: number;
+  /** Linked Xero contact — bills for this talent are raised against it. */
+  xeroContactId: string;
+  xeroContactName: string;
+  xeroBankAccount: string;
 }
 
 interface TalentProfile {
@@ -80,6 +84,9 @@ function rosterRowsForManager(managerId: string): RosterRow[] {
         talentName: talent.name,
         email: talent.email || "",
         total: submittedDeals.reduce((total, deal) => total + sum(deal.monthValues), 0),
+        xeroContactId: talent.xeroContactId || "",
+        xeroContactName: talent.xeroContactName || "",
+        xeroBankAccount: talent.xeroBankAccount || "",
       };
     })
     .sort((a, b) => b.total - a.total || a.talentName.localeCompare(b.talentName));
@@ -446,6 +453,8 @@ export default function TalentView() {
   const [createTalent, { isLoading: creating }] = useCreateTalentMutation();
   const [updateTalent] = useUpdateTalentMutation();
   const [deleteTalent] = useDeleteTalentMutation();
+  // Empty when Xero is not connected — the column then reads "Xero not connected".
+  const { data: xeroContacts = [] } = useGetXeroContactsQuery("creators");
   const [newTalentName, setNewTalentName] = useState("");
   const [newTalentEmail, setNewTalentEmail] = useState("");
   const [newTalentManager, setNewTalentManager] = useState("");
@@ -517,6 +526,44 @@ export default function TalentView() {
       toast.success(email ? `Saved email for ${row.talentName}.` : `Cleared email for ${row.talentName}.`);
     } catch (err) {
       toast.error(apiErrorMessage(err, "Could not save that email."));
+    }
+  };
+
+  /**
+   * Link a talent to the contact Finance already holds in Xero. Bills are then
+   * raised against that contact, so the bank and tax details come from Xero
+   * rather than being retyped here.
+   */
+  const handleXeroLink = async (row: RosterRow, name: string) => {
+    const match = xeroContacts.find((c) => c.name.toLowerCase() === name.trim().toLowerCase());
+    if (!name.trim()) {
+      if (!row.xeroContactId) return;
+      await updateTalent({
+        id: row.id,
+        body: { xeroContactId: "", xeroContactName: "", xeroBankAccount: "", xeroTaxNumber: "" },
+      }).unwrap().catch(() => null);
+      return toast.success(`${row.talentName} unlinked from Xero.`);
+    }
+    if (!match) return toast.error(`No Xero contact called “${name}”. Pick one from the list.`);
+    if (match.contactId === row.xeroContactId) return;
+    try {
+      await updateTalent({
+        id: row.id,
+        body: {
+          xeroContactId: match.contactId,
+          xeroContactName: match.name,
+          xeroBankAccount: match.bankAccount,
+          xeroTaxNumber: match.taxNumber,
+          email: row.email || match.email || undefined,
+        },
+      }).unwrap();
+      toast.success(
+        match.bankAccount
+          ? `${row.talentName} linked to ${match.name} — bank details pulled from Xero.`
+          : `${row.talentName} linked to ${match.name}. No bank details on that Xero contact yet.`,
+      );
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Could not link that Xero contact."));
     }
   };
 
@@ -613,12 +660,19 @@ export default function TalentView() {
                 </select>
               </div>
             </div>
+            {/* Shared by every row's Xero contact field. */}
+            <datalist id="talent-xero-contacts">
+              {xeroContacts.map((contact) => (
+                <option value={contact.name} key={contact.contactId} />
+              ))}
+            </datalist>
             <div className="table-wrap">
               <table>
                 <thead>
                   <tr>
                     <th>Talent</th>
                     <th>Email</th>
+                    <th>Xero contact</th>
                     <th>Manager</th>
                     <th>Submitted revenue</th>
                     <th>Transfer roster to</th>
@@ -649,6 +703,23 @@ export default function TalentView() {
                             onBlur={(event) => handleEmailSave(row, event.target.value)}
                           />
                         </td>
+                        <td>
+                          <input
+                            key={`${row.id}-${row.xeroContactId}`}
+                            className="mini-input"
+                            list="talent-xero-contacts"
+                            defaultValue={row.xeroContactName}
+                            placeholder={xeroContacts.length ? "Link a Xero contact" : "Xero not connected"}
+                            disabled={!xeroContacts.length}
+                            aria-label={`${row.talentName} Xero contact`}
+                            onBlur={(event) => handleXeroLink(row, event.target.value)}
+                          />
+                          {row.xeroContactId ? (
+                            <small className="field-hint">
+                              {row.xeroBankAccount ? `Bank ${row.xeroBankAccount}` : "No bank details in Xero"}
+                            </small>
+                          ) : null}
+                        </td>
                         <td>{managerName(row.managerId)}</td>
                         <td>{money(row.total)}</td>
                         <td>
@@ -678,7 +749,7 @@ export default function TalentView() {
                     ))
                   ) : (
                     <tr>
-                      <td colSpan={6}>
+                      <td colSpan={7}>
                         No talent added {allSelected ? "yet" : `for ${managerName(effectiveManagerId)} yet`}.
                       </td>
                     </tr>

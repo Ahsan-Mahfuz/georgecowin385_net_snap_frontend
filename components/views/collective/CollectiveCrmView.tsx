@@ -33,6 +33,7 @@ import {
   useUpdateCollectiveInstallmentMutation,
   useCreateCollectiveInstallmentInvoiceMutation,
 } from "@/redux/api/collectiveDealApi";
+import { useGetXeroContactsQuery } from "@/redux/api/dealApi";
 import { toCollectiveDeal } from "@/lib/adapters";
 import type { ApiCollectiveDeal } from "@/redux/api/types";
 import { useConfirm } from "@/components/ui/ConfirmProvider";
@@ -54,6 +55,7 @@ const emptyForm = {
   paymentTerm: "30",
   customPaymentDays: "",
   notes: "",
+  xeroContactId: "",
   monthValues: new Array(12).fill("") as string[],
 };
 
@@ -76,6 +78,8 @@ export default function CollectiveCrmView() {
   const [createInvoice, { isLoading: invoicing }] = useCreateCollectiveInvoiceMutation();
   const [updateInstallment] = useUpdateCollectiveInstallmentMutation();
   const [createInstallmentInvoice] = useCreateCollectiveInstallmentInvoiceMutation();
+  // Empty when the Collective Xero is not connected — the field is free text then.
+  const { data: xeroContacts = [] } = useGetXeroContactsQuery("collective");
   const confirm = useConfirm();
   const toast = useToast();
 
@@ -125,6 +129,41 @@ export default function CollectiveCrmView() {
 
   const allocation = scheduleAllocation(Number(form.amount) || 0, form.monthValues.map(Number));
 
+  /**
+   * Picking a contact that already exists in Xero stops a client becoming a new
+   * contact on every deal, and brings their billing email and address across.
+   */
+  const applyContact = (name: string) => {
+    const match = xeroContacts.find((c) => c.name.toLowerCase() === name.trim().toLowerCase());
+    setForm((current) => ({
+      ...current,
+      company: name,
+      xeroContactId: match?.contactId || "",
+      // A chosen contact replaces these outright, blank included — keeping the
+      // previous client's email would quietly invoice the wrong people.
+      emailContact: match ? match.email : current.emailContact,
+      companyAddress: match ? match.address : current.companyAddress,
+    }));
+  };
+
+  // Says plainly what will happen, including when Xero holds no details.
+  const contactHint = (() => {
+    if (!xeroContacts.length) return "";
+    const match = xeroContacts.find(
+      (c) => c.contactId === form.xeroContactId || c.name.toLowerCase() === form.company.trim().toLowerCase(),
+    );
+    if (match) {
+      const missing = [!match.email && "email", !match.address && "address"].filter(Boolean);
+      return missing.length
+        ? `Existing Xero contact — but Xero has no ${missing.join(" or ")} for them. Fill it in below and we'll send it.`
+        : "Existing Xero contact — email and address pulled from Xero.";
+    }
+    if (form.company.trim()) {
+      return "New contact. It will be created in Xero with the email address and company address below.";
+    }
+    return `${xeroContacts.length} contacts available from Xero.`;
+  })();
+
   const openAddPanel = () => {
     setForm({ ...emptyForm, ownerId: collectiveUser.id });
     setEditingId(null);
@@ -149,6 +188,7 @@ export default function CollectiveCrmView() {
       paymentTerm: deal.paymentTerm || "30",
       customPaymentDays: String(deal.customPaymentDays || ""),
       notes: deal.notes || "",
+      xeroContactId: deal.xeroContactId || "",
       monthValues: months.map((_, index) => {
         const value = Number((deal.monthValues || [])[index] || 0);
         return value ? String(value) : "";
@@ -201,6 +241,9 @@ export default function CollectiveCrmView() {
       customPaymentDays: Number(form.customPaymentDays) || 0,
       monthValues,
       notes: form.notes.trim(),
+      // Empty means "new client" — Xero creates the contact from the details above.
+      xeroContactId: form.xeroContactId,
+      xeroContactName: form.company.trim(),
     };
 
     try {
@@ -680,14 +723,25 @@ export default function CollectiveCrmView() {
                 </div>
 
                 <div className="field">
-                  <label htmlFor="collectiveCompany">Company</label>
+                  <label htmlFor="collectiveCompany">Company / Xero contact</label>
                   <input
                     id="collectiveCompany"
                     required
-                    placeholder="Client name"
+                    list="collective-xero-contacts"
+                    placeholder="Choose an existing contact, or type a new client"
                     value={form.company}
-                    onChange={(event) => setForm({ ...form, company: event.target.value })}
+                    onChange={(event) => applyContact(event.target.value)}
                   />
+                  <datalist id="collective-xero-contacts">
+                    {xeroContacts.map((contact) => (
+                      <option value={contact.name} key={contact.contactId} />
+                    ))}
+                  </datalist>
+                  {contactHint ? (
+                    <small className={`field-hint ${form.xeroContactId ? "contact-matched" : ""}`}>
+                      {contactHint}
+                    </small>
+                  ) : null}
                 </div>
 
                 <div className="field">

@@ -88,6 +88,9 @@ export interface ApiXeroContact {
   name: string;
   email: string;
   address: string;
+  bankAccount: string;
+  taxNumber: string;
+  currency: string;
 }
 
 export interface ApiXeroSync {
@@ -126,6 +129,11 @@ export interface ApiTalent {
   name: string;
   email?: string;
   manager: ApiManagerRef | string;
+  /** Linked Xero contact, so bills carry the bank and tax details Finance holds. */
+  xeroContactId?: string;
+  xeroContactName?: string;
+  xeroBankAccount?: string;
+  xeroTaxNumber?: string;
   createdAt: string;
 }
 
@@ -233,6 +241,8 @@ export interface ApiCollectiveDeal {
   customPaymentDays: number;
   monthValues: number[];
   installments?: ApiInstallment[];
+  xeroContactId?: string;
+  xeroContactName?: string;
   xeroOrg: string;
   xeroInvoiceId: string;
   xeroStatus: string;

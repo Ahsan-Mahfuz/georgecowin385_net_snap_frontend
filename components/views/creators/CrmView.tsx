@@ -128,10 +128,32 @@ export default function CrmView() {
       ...current,
       companyName: name,
       xeroContactId: match?.contactId || "",
-      emailAddresses: match?.email || current.emailAddresses,
-      companyAddress: match?.address || current.companyAddress,
+      // A chosen contact replaces these outright, blank included. Keeping the
+      // previous brand's email when the new contact has none would quietly
+      // invoice the wrong people.
+      emailAddresses: match ? match.email : current.emailAddresses,
+      companyAddress: match ? match.address : current.companyAddress,
     }));
   };
+
+  // Says plainly what will happen, including when Xero holds no details for the
+  // contact — otherwise an empty email/address box just looks broken.
+  const contactHint = (() => {
+    if (!xeroContacts.length) return "";
+    const match = xeroContacts.find(
+      (c) => c.contactId === form.xeroContactId || c.name.toLowerCase() === form.companyName.trim().toLowerCase(),
+    );
+    if (match) {
+      const missing = [!match.email && "email", !match.address && "address"].filter(Boolean);
+      return missing.length
+        ? `Existing Xero contact — but Xero has no ${missing.join(" or ")} for them. Fill it in below and we'll send it.`
+        : "Existing Xero contact — email and address pulled from Xero.";
+    }
+    if (form.companyName.trim()) {
+      return "New contact. It will be created in Xero with the email address and company address below.";
+    }
+    return `${xeroContacts.length} contacts available from Xero.`;
+  })();
 
   const openAddPanel = () => {
     setForm(emptyForm);
@@ -420,7 +442,11 @@ export default function CrmView() {
                         <span className="crm-card-brand">{d.companyName || d.company || "No brand"}</span>
                         <span>{d.campaignName || "No campaign"} · {money(dealTotal(d))}</span>
                         <small>{managerName(d.managerId)}</small>
-                        {d.approvalStatus && d.approvalStatus !== "Approved" ? (
+                        {/* Approval only becomes relevant at Contract Signed — a deal
+                            still in conversation is nobody's decision yet. */}
+                        {CONTRACT_REQUIRED_STAGES.includes(stageOf(d)) &&
+                        d.approvalStatus &&
+                        d.approvalStatus !== "Approved" ? (
                           <span className={`crm-card-flag ${d.approvalStatus === "Rejected" ? "is-rejected" : ""}`}>
                             {d.approvalStatus === "Rejected" ? "Rejected" : "Awaiting approval"}
                           </span>
@@ -536,17 +562,10 @@ export default function CrmView() {
                       <option value={c.name} key={c.contactId} />
                     ))}
                   </datalist>
-                  {form.xeroContactId ? (
-                    <small className="field-hint contact-matched">
-                      Existing Xero contact — the invoice will be raised against it.
+                  {contactHint ? (
+                    <small className={`field-hint ${form.xeroContactId ? "contact-matched" : ""}`}>
+                      {contactHint}
                     </small>
-                  ) : form.companyName.trim() ? (
-                    <small className="field-hint">
-                      New contact. It will be created in Xero with the email address and company
-                      address below.
-                    </small>
-                  ) : xeroContacts.length ? (
-                    <small className="field-hint">{xeroContacts.length} contacts available from Xero.</small>
                   ) : null}
                 </div>
 

@@ -52,14 +52,23 @@ export const dealApi = baseApi.injectEndpoints({
       transformResponse: (res: ApiEnvelope<ApiXeroSync>) => res.data,
       invalidatesTags: ["Deal"],
     }),
-    // Push a talent invoice to Xero as a draft bill (money we owe the talent).
-    createTalentBill: builder.mutation<
-      { invoiceNumber: string; status: string },
-      { dealIds: string[]; talentName: string; amount: number }
+    // Create the talent's draft bill in Xero, or bring the existing one up to
+    // date when more paid deals have joined the payment run.
+    syncTalentBill: builder.mutation<
+      { invoiceNumber: string; status: string; updated: boolean; lines: number; total: number },
+      { talentName: string; manager?: string }
     >({
       query: (body) => ({ url: "/deal/talent-bill", method: "POST", body }),
-      transformResponse: (res: ApiEnvelope<{ invoiceNumber: string; status: string }>) => res.data,
-      invalidatesTags: ["Deal"],
+      transformResponse: (
+        res: ApiEnvelope<{
+          invoiceNumber: string;
+          status: string;
+          updated: boolean;
+          lines: number;
+          total: number;
+        }>,
+      ) => res.data,
+      invalidatesTags: ["Deal", "Talent"],
     }),
   }),
 });
@@ -76,5 +85,5 @@ export const {
   useMarkDealTalentPaidMutation,
   useGetXeroContactsQuery,
   useSyncXeroMutation,
-  useCreateTalentBillMutation,
+  useSyncTalentBillMutation,
 } = dealApi;

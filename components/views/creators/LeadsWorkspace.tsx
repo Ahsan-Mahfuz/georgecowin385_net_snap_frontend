@@ -124,11 +124,11 @@ export default function LeadsWorkspace({
     }
   };
 
-  const handleDismiss = async (lead: EmailLead) => {
+  const handleDelete = async (lead: EmailLead) => {
     const ok = await confirm({
       tone: "danger",
-      title: category === "Deal" ? "Dismiss lead?" : `Dismiss ${category} request?`,
-      confirmLabel: "Dismiss",
+      title: category === "Deal" ? "Delete lead?" : `Delete ${category} request?`,
+      confirmLabel: "Delete",
       message: (
         <>
           <strong>{lead.subject || "This lead"}</strong>
@@ -140,9 +140,9 @@ export default function LeadsWorkspace({
     if (!ok) return;
     try {
       await deleteLead(lead.id).unwrap();
-      toast.success("Dismissed.");
+      toast.success("Deleted.");
     } catch (err) {
-      toast.error(apiErrorMessage(err, "Could not dismiss that lead."));
+      toast.error(apiErrorMessage(err, "Could not delete that lead."));
     }
   };
 
@@ -471,9 +471,10 @@ export default function LeadsWorkspace({
                   <button
                     className="secondary danger-button small"
                     type="button"
-                    onClick={() => handleDismiss(lead)}
+                    onClick={() => handleDelete(lead)}
+                    aria-label={`Delete ${lead.subject || "this item"}`}
                   >
-                    Dismiss
+                    Delete
                   </button>
                 </div>
               </article>

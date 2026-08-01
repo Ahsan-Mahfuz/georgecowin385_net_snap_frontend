@@ -118,6 +118,9 @@ export interface CollectiveDeal {
   customPaymentDays: number;
   monthValues: number[];
   installments: Installment[];
+  /** Linked Xero contact, so a repeat client never becomes a duplicate. */
+  xeroContactId: string;
+  xeroContactName: string;
   xeroOrg: string;
   xeroInvoiceId: string;
   xeroStatus: string;

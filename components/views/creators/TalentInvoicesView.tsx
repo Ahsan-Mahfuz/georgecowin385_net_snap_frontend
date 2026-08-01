@@ -8,7 +8,7 @@ import {
   useGetDealsQuery,
   useMarkDealTalentPaidMutation,
   useSendDealRemittanceMutation,
-  useCreateTalentBillMutation,
+  useSyncTalentBillMutation,
 } from "@/redux/api/dealApi";
 import { useGetExpensesQuery } from "@/redux/api/expenseApi";
 import { refId } from "@/lib/adapters";
@@ -219,7 +219,7 @@ export default function TalentInvoicesView() {
   const { data: expenseData = [] } = useGetExpensesQuery();
   const [sendRemittance] = useSendDealRemittanceMutation();
   const [markTalentPaid] = useMarkDealTalentPaidMutation();
-  const [createTalentBill, { isLoading: billing }] = useCreateTalentBillMutation();
+  const [syncTalentBill, { isLoading: billing }] = useSyncTalentBillMutation();
   const confirm = useConfirm();
   const toast = useToast();
   const managerName = (id: string) => users.find((u) => u.id === id)?.name || "Unassigned";
@@ -274,27 +274,36 @@ export default function TalentInvoicesView() {
    * in Xero the sync marks this invoice — and the reports — as paid.
    */
   const onSendToXero = async (invoice: TalentInvoice) => {
+    const updating = Boolean(invoice.billNumber);
     const ok = await confirm({
       tone: "default",
-      title: "Send to Xero as a draft bill?",
-      confirmLabel: "Create draft bill",
-      message: (
+      title: updating ? "Update the bill in Xero?" : "Send to Xero as a draft bill?",
+      confirmLabel: updating ? "Update bill" : "Create draft bill",
+      message: updating ? (
+        <>
+          The draft bill <strong>{invoice.billNumber}</strong> in Xero will be rewritten to match this
+          payment run — one line per paid deal, plus expenses — coming to{" "}
+          <strong>{money(invoice.total)}</strong>.
+        </>
+      ) : (
         <>
           A draft bill for <strong>{money(invoice.total)}</strong> payable to{" "}
           <strong>{invoice.talentName}</strong> will be created in the Cowshed Creators Xero
-          organisation. It stays a draft until someone approves it there; paying it in Xero marks this
-          invoice as paid here.
+          organisation, with one line per paid deal. It stays a draft until someone approves it there;
+          paying it in Xero marks this invoice as paid here.
         </>
       ),
     });
     if (!ok) return;
     try {
-      const result = await createTalentBill({
-        dealIds: invoice.dealIds,
+      const result = await syncTalentBill({
         talentName: invoice.talentName,
-        amount: invoice.total,
+        manager: invoice.managerId,
       }).unwrap();
-      toast.success(result?.status || "Draft bill created in Xero.");
+      toast.success(
+        result?.status ||
+          `${result?.updated ? "Bill updated" : "Draft bill created"} in Xero (${result?.lines} lines).`,
+      );
     } catch (err) {
       toast.error(apiErrorMessage(err, "Could not create that bill in Xero."));
     }
@@ -530,9 +539,13 @@ function TalentInvoiceDetail({
               ? `Bill ${invoice.billNumber} is in Xero${invoice.billState ? ` (${invoice.billState})` : ""}. Paying it there marks this invoice paid here.`
               : "Send this invoice to Xero as a draft bill, then approve and pay it in Xero."}
           </div>
-          {!invoice.paidAt && !invoice.billNumber ? (
+          {!invoice.paidAt ? (
             <button className="primary" type="button" onClick={() => onSendToXero(invoice)} disabled={billing}>
-              {billing ? "Sending to Xero…" : "Send to Xero as draft bill"}
+              {billing
+                ? "Sending to Xero…"
+                : invoice.billNumber
+                  ? "Update bill in Xero"
+                  : "Send to Xero as draft bill"}
             </button>
           ) : null}
         </div>

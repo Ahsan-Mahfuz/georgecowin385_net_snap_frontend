@@ -132,6 +132,8 @@ export function toCollectiveDeal(d: ApiCollectiveDeal): CollectiveDeal {
       xeroStatus: i.xeroStatus || "",
       invoiceDate: i.invoiceDate || "",
     })),
+    xeroContactId: d.xeroContactId || "",
+    xeroContactName: d.xeroContactName || "",
     xeroOrg: d.xeroOrg,
     xeroInvoiceId: d.xeroInvoiceId,
     xeroStatus: d.xeroStatus,

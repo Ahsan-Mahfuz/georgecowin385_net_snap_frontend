@@ -12,7 +12,22 @@ export const talentApi = baseApi.injectEndpoints({
       query: (body) => ({ url: "/talent", method: "POST", body }),
       invalidatesTags: ["Talent"],
     }),
-    updateTalent: builder.mutation<ApiTalent, { id: string; body: { name?: string; email?: string; manager?: string } }>({
+    updateTalent: builder.mutation<
+      ApiTalent,
+      {
+        id: string;
+        body: {
+          name?: string;
+          email?: string;
+          manager?: string;
+          // Xero link, set from the roster's contact picker.
+          xeroContactId?: string;
+          xeroContactName?: string;
+          xeroBankAccount?: string;
+          xeroTaxNumber?: string;
+        };
+      }
+    >({
       query: ({ id, body }) => ({ url: `/talent/${id}`, method: "PATCH", body }),
       invalidatesTags: ["Talent"],
     }),
