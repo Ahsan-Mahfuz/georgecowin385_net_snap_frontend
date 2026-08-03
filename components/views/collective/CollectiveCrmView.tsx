@@ -33,6 +33,7 @@ import {
   useUpdateCollectiveInstallmentMutation,
   useCreateCollectiveInstallmentInvoiceMutation,
 } from "@/redux/api/collectiveDealApi";
+import { useSyncXeroMutation } from "@/redux/api/dealApi";
 import { useGetXeroContactsQuery } from "@/redux/api/dealApi";
 import { toCollectiveDeal } from "@/lib/adapters";
 import type { ApiCollectiveDeal } from "@/redux/api/types";
@@ -97,6 +98,7 @@ export default function CollectiveCrmView() {
   const [dragOverStage, setDragOverStage] = useState<string | null>(null);
   const [dragOverPayStage, setDragOverPayStage] = useState<string | null>(null);
   const [draggingKey, setDraggingKey] = useState<string | null>(null);
+  const [lostCollapsed, setLostCollapsed] = useState<boolean>(true);
 
   const allDeals: CollectiveDeal[] = useMemo(
     () => dealData.map(toCollectiveDeal),
@@ -382,6 +384,16 @@ export default function CollectiveCrmView() {
     }
   };
 
+  const [syncXero, { isLoading: syncingXero }] = useSyncXeroMutation();
+  const handleCheckXeroNow = async () => {
+    try {
+      const summary = await syncXero().unwrap();
+      toast.success(`Checked Xero: ${summary.checked} documents checked.`);
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Could not sync with Xero."));
+    }
+  };
+
   return (
     <>
       <div className="topbar">
@@ -396,6 +408,9 @@ export default function CollectiveCrmView() {
         <div className="section-head">
           <h2>CRM summary</h2>
           <div className="section-actions">
+            <button className="secondary" type="button" onClick={handleCheckXeroNow} disabled={syncingXero}>
+              {syncingXero ? "Checking Xero…" : "Check Xero now"}
+            </button>
             <div className="segmented" role="group" aria-label="Live or pipeline deals">
               {(["all", "live", "pipeline"] as CollectiveScope[]).map((option) => (
                 <button
@@ -468,6 +483,24 @@ export default function CollectiveCrmView() {
               (total, deal) => total + collectiveDealTotal(deal),
               0,
             );
+
+            if (stage === "Lost" && lostCollapsed) {
+              return (
+                <div
+                  className="crm-column pipeline"
+                  key={stage}
+                  style={{ minWidth: "60px", maxWidth: "60px", padding: "12px 8px", cursor: "pointer", alignItems: "center" }}
+                  onClick={() => setLostCollapsed(false)}
+                  title="Click to expand Lost stage column"
+                >
+                  <strong style={{ writingMode: "vertical-rl", transform: "rotate(180deg)", letterSpacing: "1px", textTransform: "uppercase", fontSize: "12px" }}>
+                    Lost ({stageDeals.length})
+                  </strong>
+                  <span style={{ fontSize: "10px", marginTop: "8px", color: "#666" }}>▶</span>
+                </div>
+              );
+            }
+
             return (
               <div
                 className={`crm-column ${stageClass(stage)} ${dragOverStage === stage ? "drag-over" : ""}`}
@@ -492,6 +525,19 @@ export default function CollectiveCrmView() {
               >
                 <div className="crm-column-head">
                   <span>{stage}</span>
+                  {stage === "Lost" ? (
+                    <button
+                      type="button"
+                      className="secondary"
+                      style={{ padding: "2px 6px", fontSize: "11px", marginLeft: "auto" }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setLostCollapsed(true);
+                      }}
+                    >
+                      ◀ Collapse
+                    </button>
+                  ) : null}
                   <strong>{money(stageTotal)}</strong>
                 </div>
                 <div className="crm-card-list">

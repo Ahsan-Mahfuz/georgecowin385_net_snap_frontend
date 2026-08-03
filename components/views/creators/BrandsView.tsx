@@ -5,7 +5,7 @@ import { useSelector } from "react-redux";
 import { RootState } from "@/redux/store";
 import { money, currencyMoney, slugify, sum, usdToGbpRate } from "@/lib/format";
 import { paymentTerms } from "@/lib/mock";
-import { useGetDealsQuery } from "@/redux/api/dealApi";
+import { useGetDealsQuery, useGetXeroContactsQuery } from "@/redux/api/dealApi";
 import {
   useGetBrandsQuery,
   useCreateBrandMutation,
@@ -114,22 +114,46 @@ export default function BrandsView() {
     [dealData],
   );
 
+  const { data: xeroContacts = [] } = useGetXeroContactsQuery("creators");
+
   const records: BrandRecord[] = useMemo(() => {
-    const mapped = brandData.map((b) => ({
-      id: b._id,
-      name: b.name,
-      emailContact: b.emailContact || "",
-      billingAddress: b.billingAddress || "",
-      paymentTerm: b.paymentTerm || "30",
-      customPaymentDays: Number(b.customPaymentDays || 0),
-      updatedAt: b.updatedAt,
-    }));
-    return mapped.sort((a, b) =>
+    const map = new Map<string, BrandRecord>();
+
+    brandData.forEach((b) => {
+      map.set(brandKey(b.name), {
+        id: b._id,
+        name: b.name,
+        emailContact: b.emailContact || "",
+        billingAddress: b.billingAddress || "",
+        paymentTerm: b.paymentTerm || "30",
+        customPaymentDays: Number(b.customPaymentDays || 0),
+        updatedAt: b.updatedAt,
+      });
+    });
+
+    crmDeals.forEach((deal) => {
+      const name = deal.company?.trim();
+      if (!name) return;
+      const key = brandKey(name);
+      if (!map.has(key)) {
+        map.set(key, {
+          id: `crm-${key}`,
+          name: name,
+          emailContact: "",
+          billingAddress: "",
+          paymentTerm: "30",
+          customPaymentDays: 0,
+        });
+      }
+    });
+
+    const list = [...map.values()];
+    return list.sort((a, b) =>
       brandSortMode === "total"
         ? brandTotalAmount(b.name) - brandTotalAmount(a.name) || a.name.localeCompare(b.name)
         : a.name.localeCompare(b.name),
     );
-  }, [brandData, brandSortMode]);
+  }, [brandData, crmDeals, brandSortMode]);
 
   const selected: BrandRecord | null = addingNew
     ? null

@@ -6,7 +6,7 @@ import { reportStages, type Deal } from "@/lib/mock";
 import { useCreatorsTeam } from "@/hooks/useCreatorsTeam";
 import { useGetTalentsQuery } from "@/redux/api/talentApi";
 import { useGetDealsQuery } from "@/redux/api/dealApi";
-import { toDeal, talentNamesForManager } from "@/lib/adapters";
+import { toDeal, talentNamesForManager, refId } from "@/lib/adapters";
 import type { ApiTalent } from "@/redux/api/types";
 
 // Set by the component so module-level helpers resolve live data.
@@ -44,6 +44,19 @@ interface CrmDeal {
   amount: number;
   currency?: "GBP" | "USD";
   xeroInvoiceId?: string;
+}
+
+function toReportCrmDeal(d: Deal): CrmDeal {
+  return {
+    id: d.id,
+    managerId: d.managerId,
+    talentName: d.talentName,
+    stage: d.stage || "",
+    company: d.company || "",
+    campaignName: d.campaignName || "",
+    amount: sum(d.monthValues || []),
+    currency: d.currency,
+  };
 }
 
 function talentKey(managerId: string, talentName: string): string {
@@ -197,8 +210,20 @@ export default function ReportsView() {
       remittanceMode === "month"
         ? monthRange.label
         : `${displayDate(remittanceStartDate)} to ${displayDate(remittanceEndDate)}`;
-    const selectedEmail = "";
-    const paidDeals: CrmDeal[] = [];
+    const selectedTalentDoc = selected ? (talentData as ApiTalent[]).find((t) => t.name === selected.talentName && refId(t.manager) === selected.managerId) : null;
+    const selectedEmail = selectedTalentDoc?.email || selectedTalentDoc?.invoiceEmail || "";
+
+    const paidDeals: CrmDeal[] = selected
+      ? liveReportDeals
+          .filter(
+            (d) =>
+              d.talentName === selected.talentName &&
+              d.managerId === selected.managerId &&
+              (d.financeStatus === "Paid" || d.stage === "Paid" || d.stage === "On Next Payment Run")
+          )
+          .map(toReportCrmDeal)
+      : [];
+
     const dealTotal = paidDeals.reduce((total, deal) => total + talentPayableAmount(deal), 0);
     const expenseTotal = paidDeals.reduce((total) => total + dealTalentExpenseTotal(), 0);
 

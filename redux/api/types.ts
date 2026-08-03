@@ -118,6 +118,7 @@ export interface ApiProductionRequest {
   total: number;
   status: "pending" | "scheduled" | "completed" | "rejected";
   note?: string;
+  rejectionReason?: string;
   /** Set once finance has raised the chargeback against the manager's P&L. */
   chargebackRequestedAt?: string | null;
   createdAt: string;
@@ -134,6 +135,17 @@ export interface ApiTalent {
   xeroContactName?: string;
   xeroBankAccount?: string;
   xeroTaxNumber?: string;
+  invoiceName?: string;
+  invoiceEmail?: string;
+  invoiceAddress?: string;
+  bankName?: string;
+  accountName?: string;
+  sortCode?: string;
+  accountNumber?: string;
+  vatNumber?: string;
+  handles?: { instagram?: string; tiktok?: string; youtube?: string };
+  bio?: string;
+  imageUrl?: string;
   createdAt: string;
 }
 
@@ -217,6 +229,8 @@ export interface ApiInstallment {
   monthIndex: number;
   amount: number;
   stage: string;
+  paymentTerm?: string;
+  customPaymentDays?: number;
   xeroInvoiceId: string;
   xeroInvoiceNumber: string;
   xeroStatus: string;

@@ -4,7 +4,7 @@ import { useSelector } from "react-redux";
 import { RootState } from "@/redux/store";
 import { monthLabels, money, sum } from "@/lib/format";
 import { Deal } from "@/lib/mock";
-import { dealRevenue } from "@/lib/pl";
+import { dealRevenue, isLiveDeal } from "@/lib/pl";
 import { useCreatorsTeam } from "@/hooks/useCreatorsTeam";
 import { useGetDealsQuery } from "@/redux/api/dealApi";
 import { useGetSettingsQuery } from "@/redux/api/settingsApi";
@@ -69,7 +69,20 @@ export default function CommissionView() {
 
   const managerSalary = (id: string) => Number(settings?.managerSalaries?.[id] ?? 0);
   const managerCommissionRate = (id: string) => Number(settings?.commissionRates?.[id] ?? 0);
-  const monthlyRevenue = (id: string) => dealRevenue(deals, "live", id);
+  const monthlyRevenue = (id: string) => {
+    const res = new Array(12).fill(0);
+    deals
+      .filter((d) => d.managerId === id && isLiveDeal(d))
+      .forEach((d) => {
+        const m = d.signedMonthIndex !== undefined && d.signedMonthIndex !== null
+          ? d.signedMonthIndex
+          : 0;
+        const monthIdx = Math.min(11, Math.max(0, Number(m || 0)));
+        const total = sum(d.monthValues || []);
+        res[monthIdx] += total;
+      });
+    return res;
+  };
   const monthlyOwnCommission = (id: string) => {
     const threshold = managerSalary(id) * 5;
     const rate = managerCommissionRate(id) / 100;

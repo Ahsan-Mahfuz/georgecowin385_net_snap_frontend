@@ -16,16 +16,7 @@ export const talentApi = baseApi.injectEndpoints({
       ApiTalent,
       {
         id: string;
-        body: {
-          name?: string;
-          email?: string;
-          manager?: string;
-          // Xero link, set from the roster's contact picker.
-          xeroContactId?: string;
-          xeroContactName?: string;
-          xeroBankAccount?: string;
-          xeroTaxNumber?: string;
-        };
+        body: Partial<ApiTalent>;
       }
     >({
       query: ({ id, body }) => ({ url: `/talent/${id}`, method: "PATCH", body }),

@@ -248,110 +248,125 @@ function TalentMonthlyDealsTable({ deals }: { deals: Deal[] }) {
   );
 }
 
-function TalentProfileSection({ managerId, talentName }: { managerId: string; talentName: string }) {
-  const key = talentKey(managerId, talentName);
-  const profile = talentProfile();
-  const editable = ADMIN_EDITABLE;
+function TalentProfileSection({ talent }: { talent?: ApiTalent | null }) {
+  const [updateTalent, { isLoading: saving }] = useUpdateTalentMutation();
+  const toast = useToast();
+
+  const [bio, setBio] = useState(talent?.bio || "");
+  const [imageUrl, setImageUrl] = useState(talent?.imageUrl || "");
+  const [instagram, setInstagram] = useState(talent?.handles?.instagram || "");
+  const [tiktok, setTiktok] = useState(talent?.handles?.tiktok || "");
+  const [youtube, setYoutube] = useState(talent?.handles?.youtube || "");
+
+  if (!talent) return null;
+
+  const handleSaveProfile = async () => {
+    try {
+      await updateTalent({
+        id: talent._id,
+        body: {
+          bio: bio.trim(),
+          imageUrl: imageUrl.trim(),
+          handles: { instagram: instagram.trim(), tiktok: tiktok.trim(), youtube: youtube.trim() },
+        },
+      }).unwrap();
+      toast.success(`Profile saved for ${talent.name}.`);
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Could not save profile."));
+    }
+  };
+
   return (
     <section className="section">
       <div className="section-head">
         <h2>Talent profile</h2>
-        <span className="pill">{editable ? "Editable" : "View only"}</span>
+        <span className="pill">Editable</span>
       </div>
       <div className="section-body">
         <div className="talent-profile-preview">
-          <img src={profileImageUrl(managerId, talentName)} alt={`${talentName} preview`} />
+          <img src={imageUrl || generatedTalentImage(refId(talent.manager), talent.name)} alt={`${talent.name} preview`} />
           <div>
-            <strong>{talentName}</strong>
-            <span>{managerName(managerId)}</span>
-            <small>{profile.updatedAt ? `Stats updated` : "No stats pulled yet"}</small>
+            <strong>{talent.name}</strong>
+            <span>{managerName(refId(talent.manager))}</span>
           </div>
         </div>
         <div className="form-grid compact-action-grid">
           <div className="field wide">
             <label>About talent</label>
-            {editable ? (
-              <textarea
-                data-talent-profile={key}
-                data-field="bio"
-                rows={5}
-                placeholder="Short media pack bio"
-                defaultValue={profile.bio}
-              />
-            ) : (
-              <div className="read-field">{profile.bio || "No bio added yet."}</div>
-            )}
+            <textarea
+              rows={4}
+              placeholder="Short media pack bio"
+              value={bio}
+              onChange={(e) => setBio(e.target.value)}
+            />
           </div>
           <div className="field wide">
             <label>Preview image URL</label>
-            {editable ? (
-              <input
-                data-talent-profile={key}
-                data-field="imageUrl"
-                defaultValue={profile.imageUrl}
-                placeholder="Paste profile image URL, or leave blank for generated preview"
-              />
-            ) : (
-              <div className="read-field">
-                {profile.imageUrl ? profile.imageUrl : "Generated preview image"}
-              </div>
-            )}
+            <input
+              value={imageUrl}
+              onChange={(e) => setImageUrl(e.target.value)}
+              placeholder="Paste profile image URL, or leave blank for generated preview"
+            />
           </div>
-          {PLATFORMS.map((platform) => {
-            const stats = profile.stats[platform];
-            return (
-              <div className="field social-field" key={platform}>
-                <label>{socialPlatformLabel(platform)}</label>
-                {editable ? (
-                  <>
-                    <label className="toggle-line">
-                      <input
-                        type="checkbox"
-                        data-talent-profile={key}
-                        data-field={`platform:${platform}`}
-                        defaultChecked={profile.platforms[platform]}
-                      />{" "}
-                      Pull {socialPlatformLabel(platform)}
-                    </label>
-                    <input
-                      data-talent-profile={key}
-                      data-field={`handle:${platform}`}
-                      defaultValue={profile.handles[platform]}
-                      placeholder="@handle"
-                    />
-                  </>
-                ) : (
-                  <div className="read-field">{profile.handles[platform] || "-"}</div>
-                )}
-                <small>No stats pulled</small>
-              </div>
-            );
-          })}
-          {editable ? (
-            <div className="field wide media-action-row">
-              <button className="secondary" type="button" data-pull-social={key}>
-                Pull selected social stats
-              </button>
-              <button className="primary save-detail-button" type="button" data-save-talent-profile={key}>
-                Save profile
-              </button>
-            </div>
-          ) : null}
+          <div className="field">
+            <label>Instagram handle</label>
+            <input value={instagram} onChange={(e) => setInstagram(e.target.value)} placeholder="@instagram" />
+          </div>
+          <div className="field">
+            <label>TikTok handle</label>
+            <input value={tiktok} onChange={(e) => setTiktok(e.target.value)} placeholder="@tiktok" />
+          </div>
+          <div className="field">
+            <label>YouTube handle</label>
+            <input value={youtube} onChange={(e) => setYoutube(e.target.value)} placeholder="@youtube" />
+          </div>
+          <div className="field wide media-action-row">
+            <button className="primary save-detail-button" type="button" onClick={handleSaveProfile} disabled={saving}>
+              {saving ? "Saving…" : "Save profile"}
+            </button>
+          </div>
         </div>
       </div>
     </section>
   );
 }
 
-function TalentInvoiceDetailsForm({
-  managerId,
-  talentName,
-}: {
-  managerId: string;
-  talentName: string;
-}) {
-  const key = talentKey(managerId, talentName);
-  const details = talentInvoiceDetails(talentName);
+function TalentInvoiceDetailsForm({ talent }: { talent?: ApiTalent | null }) {
+  const [updateTalent, { isLoading: saving }] = useUpdateTalentMutation();
+  const toast = useToast();
+
+  const [invoiceName, setInvoiceName] = useState(talent?.invoiceName || talent?.name || "");
+  const [invoiceEmail, setInvoiceEmail] = useState(talent?.invoiceEmail || talent?.email || "");
+  const [invoiceAddress, setInvoiceAddress] = useState(talent?.invoiceAddress || "");
+  const [bankName, setBankName] = useState(talent?.bankName || "");
+  const [accountName, setAccountName] = useState(talent?.accountName || talent?.name || "");
+  const [sortCode, setSortCode] = useState(talent?.sortCode || "");
+  const [accountNumber, setAccountNumber] = useState(talent?.accountNumber || "");
+  const [vatNumber, setVatNumber] = useState(talent?.vatNumber || "");
+
+  if (!talent) return null;
+
+  const handleSave = async () => {
+    try {
+      await updateTalent({
+        id: talent._id,
+        body: {
+          invoiceName: invoiceName.trim(),
+          invoiceEmail: invoiceEmail.trim(),
+          invoiceAddress: invoiceAddress.trim(),
+          bankName: bankName.trim(),
+          accountName: accountName.trim(),
+          sortCode: sortCode.trim(),
+          accountNumber: accountNumber.trim(),
+          vatNumber: vatNumber.trim(),
+        },
+      }).unwrap();
+      toast.success(`Invoicing details saved for ${talent.name}.`);
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Could not save invoicing details."));
+    }
+  };
+
   return (
     <div className="section-body">
       <div className="section-head inline-head">
@@ -362,79 +377,71 @@ function TalentInvoiceDetailsForm({
         <div className="field">
           <label>Invoice name</label>
           <input
-            data-talent-invoice-detail={key}
-            data-field="invoiceName"
-            defaultValue={details.invoiceName}
-            placeholder={talentName}
+            value={invoiceName}
+            onChange={(e) => setInvoiceName(e.target.value)}
+            placeholder={talent.name}
           />
         </div>
         <div className="field">
           <label>Invoice email</label>
           <input
-            data-talent-invoice-detail={key}
-            data-field="invoiceEmail"
             type="email"
-            defaultValue={details.invoiceEmail}
+            value={invoiceEmail}
+            onChange={(e) => setInvoiceEmail(e.target.value)}
             placeholder="talent@email.com"
           />
         </div>
         <div className="field wide">
           <label>Invoice address</label>
           <input
-            data-talent-invoice-detail={key}
-            data-field="invoiceAddress"
-            defaultValue={details.invoiceAddress}
+            value={invoiceAddress}
+            onChange={(e) => setInvoiceAddress(e.target.value)}
             placeholder="Talent billing address"
           />
         </div>
         <div className="field">
           <label>Bank name</label>
           <input
-            data-talent-invoice-detail={key}
-            data-field="bankName"
-            defaultValue={details.bankName}
+            value={bankName}
+            onChange={(e) => setBankName(e.target.value)}
             placeholder="Bank name"
           />
         </div>
         <div className="field">
           <label>Name on account</label>
           <input
-            data-talent-invoice-detail={key}
-            data-field="accountName"
-            defaultValue={details.accountName}
-            placeholder={talentName}
+            value={accountName}
+            onChange={(e) => setAccountName(e.target.value)}
+            placeholder={talent.name}
           />
         </div>
         <div className="field">
           <label>Sort code</label>
           <input
-            data-talent-invoice-detail={key}
-            data-field="sortCode"
-            defaultValue={details.sortCode}
+            value={sortCode}
+            onChange={(e) => setSortCode(e.target.value)}
             placeholder="00-00-00"
           />
         </div>
         <div className="field">
           <label>Account number</label>
           <input
-            data-talent-invoice-detail={key}
-            data-field="accountNumber"
-            defaultValue={details.accountNumber}
+            value={accountNumber}
+            onChange={(e) => setAccountNumber(e.target.value)}
             placeholder="12345678"
           />
         </div>
         <div className="field">
           <label>VAT number</label>
           <input
-            data-talent-invoice-detail={key}
-            data-field="vatNumber"
-            defaultValue={details.vatNumber}
+            value={vatNumber}
+            onChange={(e) => setVatNumber(e.target.value)}
             placeholder="Optional"
           />
         </div>
         <div className="field wide">
-          <button className="primary save-detail-button" type="button" data-save-talent-invoice={key}>
-            Save
+          <button className="primary save-detail-button" type="button" onClick={handleSave} disabled={saving}>
+            {saving ? "Saving…" : "Save invoicing details"}
           </button>
         </div>
       </div>
@@ -838,13 +845,11 @@ export default function TalentView() {
           {selectedTalent ? (
             <>
               <TalentProfileSection
-                managerId={selectedTalent.managerId}
-                talentName={selectedTalent.talentName}
+                talent={(talentData as ApiTalent[]).find((t) => t._id === selectedTalent.id)}
               />
               <section className="section">
                 <TalentInvoiceDetailsForm
-                  managerId={selectedTalent.managerId}
-                  talentName={selectedTalent.talentName}
+                  talent={(talentData as ApiTalent[]).find((t) => t._id === selectedTalent.id)}
                 />
               </section>
             </>

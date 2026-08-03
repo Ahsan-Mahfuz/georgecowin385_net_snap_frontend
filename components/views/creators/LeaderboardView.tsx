@@ -9,7 +9,7 @@ import { scopedDeals } from "@/lib/pl";
 import { useCreatorsTeam } from "@/hooks/useCreatorsTeam";
 import { useGetDealsQuery } from "@/redux/api/dealApi";
 import { useGetTalentsQuery } from "@/redux/api/talentApi";
-import { toDeal, talentNamesForManager } from "@/lib/adapters";
+import { toDeal, talentNamesForManager, refId } from "@/lib/adapters";
 import type { ApiTalent } from "@/redux/api/types";
 
 type LeaderboardScope = "personal" | "full";
@@ -67,24 +67,28 @@ export default function LeaderboardView() {
 
   const rows = useMemo(() => {
     const map = new Map<string, TalentRow>();
-    managers
-      .filter((m) => managerIds.includes(m.id))
-      .forEach((m) => {
-        talentNamesForManager(talentData as ApiTalent[], m.id).forEach((talentName) => {
-          const key = `${m.id}::${talentName}`;
-          map.set(key, { key, managerId: m.id, talentName, total: 0, deals: [] });
-        });
-      });
-    scopedDeals(deals, "live").forEach((deal) => {
-      if (!managerIds.includes(deal.managerId)) return;
+    (talentData as ApiTalent[]).forEach((t) => {
+      const managerId = refId(t.manager);
+      if (scope === "personal" && !managerIds.includes(managerId)) return;
+      const key = `${managerId}::${t.name}`;
+      if (!map.has(key)) {
+        map.set(key, { key, managerId, talentName: t.name, total: 0, deals: [] });
+      }
+    });
+
+    deals.forEach((deal) => {
+      if (deal.approvalStatus === "Rejected") return;
+      if (scope === "personal" && !managerIds.includes(deal.managerId)) return;
       const key = `${deal.managerId}::${deal.talentName}`;
-      if (!map.has(key)) map.set(key, { key, managerId: deal.managerId, talentName: deal.talentName, total: 0, deals: [] });
+      if (!map.has(key)) {
+        map.set(key, { key, managerId: deal.managerId, talentName: deal.talentName, total: 0, deals: [] });
+      }
       const row = map.get(key) as TalentRow;
       row.total += sum(deal.monthValues);
       row.deals.push(deal);
     });
     return [...map.values()].sort((a, b) => b.total - a.total || a.talentName.localeCompare(b.talentName));
-  }, [managers, managerIds, talentData, deals]);
+  }, [managerIds, scope, talentData, deals]);
 
   const effectiveKey =
     selectedTalentKey && rows.some((r) => r.key === selectedTalentKey) ? selectedTalentKey : rows[0]?.key || null;

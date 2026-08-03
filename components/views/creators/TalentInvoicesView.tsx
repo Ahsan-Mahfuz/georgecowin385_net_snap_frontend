@@ -9,6 +9,7 @@ import {
   useMarkDealTalentPaidMutation,
   useSendDealRemittanceMutation,
   useSyncTalentBillMutation,
+  useSyncXeroMutation,
 } from "@/redux/api/dealApi";
 import { useGetExpensesQuery } from "@/redux/api/expenseApi";
 import { refId } from "@/lib/adapters";
@@ -92,9 +93,27 @@ function dealShareOf(deal: ApiDeal): number {
   return Math.round(gross * (rate / 100));
 }
 
+function paymentRunDate(year: number, monthIndex: number, runDay: number): string {
+  const runDate = new Date(year, monthIndex, runDay);
+  if (runDate.getDay() === 6) runDate.setDate(runDate.getDate() - 1);
+  if (runDate.getDay() === 0) runDate.setDate(runDate.getDate() - 2);
+  return runDate.toISOString().slice(0, 10);
+}
+
+function nextPaymentRunDate(reference: Date = new Date()): string {
+  const today = new Date(reference.getFullYear(), reference.getMonth(), reference.getDate());
+  const thisMonthRuns = [14, 28].map((day) =>
+    paymentRunDate(today.getFullYear(), today.getMonth(), day)
+  );
+  const nextRun = thisMonthRuns.find((runDate) => new Date(`${runDate}T00:00:00`) >= today);
+  if (nextRun) return nextRun;
+  const nextMonth = new Date(today.getFullYear(), today.getMonth() + 1, 1);
+  return paymentRunDate(nextMonth.getFullYear(), nextMonth.getMonth(), 14);
+}
+
 function paymentRunOf(deal: ApiDeal): string {
-  if (deal.invoiceDate) return deal.invoiceDate;
-  return monthDateRange(deal.signedMonthIndex || 0).endDate;
+  const refDate = deal.createdAt ? new Date(deal.createdAt) : new Date();
+  return nextPaymentRunDate(refDate);
 }
 
 function buildInvoices(deals: ApiDeal[], expenses: ApiExpense[]): TalentInvoice[] {
@@ -309,6 +328,17 @@ export default function TalentInvoicesView() {
     }
   };
 
+  const [syncXero, { isLoading: syncingXero }] = useSyncXeroMutation();
+
+  const handleCheckXeroNow = async () => {
+    try {
+      const summary = await syncXero().unwrap();
+      toast.success(`Checked Xero: ${summary.checked} documents checked.`);
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Could not sync with Xero."));
+    }
+  };
+
   return (
     <>
       <div className="topbar">
@@ -323,7 +353,12 @@ export default function TalentInvoicesView() {
         <section className="section">
           <div className="section-head">
             <h2>Find invoices</h2>
-            <span className="pill admin">{invoices.length} invoices</span>
+            <div className="section-actions">
+              <button className="secondary" type="button" onClick={handleCheckXeroNow} disabled={syncingXero}>
+                {syncingXero ? "Checking Xero…" : "Check Xero now"}
+              </button>
+              <span className="pill admin">{invoices.length} invoices</span>
+            </div>
           </div>
 
           <div className="section-body form-grid compact-action-grid">

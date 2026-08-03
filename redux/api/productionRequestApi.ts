@@ -17,7 +17,7 @@ export const productionRequestApi = baseApi.injectEndpoints({
     }),
     updateProductionRequest: builder.mutation<
       ApiProductionRequest,
-      { id: string; body: { status?: string; note?: string } }
+      { id: string; body: { status?: string; note?: string; rejectionReason?: string } }
     >({
       query: ({ id, body }) => ({ url: `/production-request/${id}`, method: "PATCH", body }),
       invalidatesTags: ["ProductionRequest"],

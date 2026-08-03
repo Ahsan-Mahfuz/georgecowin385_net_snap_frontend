@@ -286,6 +286,18 @@ export default function ProductionView() {
             </div>
           </section>
 
+          {pendingRequests.length > 0 ? (
+            <div className="notice soft-section" style={{ borderLeft: "4px solid #e53e3e", background: "#fff5f5" }}>
+              <strong>🚨 Alert for Production Team:</strong> There {pendingRequests.length === 1 ? "is 1 pending production request" : `are ${pendingRequests.length} pending production requests`} awaiting review and scheduling.
+            </div>
+          ) : null}
+
+          {requests.filter((r) => r.status === "rejected").map((r) => (
+            <div key={r._id} className="notice" style={{ borderLeft: "4px solid #e53e3e", background: "#fff5f5" }}>
+              <strong>Production Rejected ({r.talentName}):</strong> {r.rejectionReason || "No rejection reason specified."} (Shoot Date: {displayDate(r.shootDate)})
+            </div>
+          ))}
+
           <section className="section">
             <div className="section-head">
               <h2>Production requests</h2>
@@ -317,6 +329,12 @@ export default function ProductionView() {
                         <span>{r.videoBrief}</span>
                       </div>
                     ) : null}
+                    {r.status === "rejected" && r.rejectionReason ? (
+                      <div className="deal-line muted" style={{ color: "#c53030" }}>
+                        <span>Rejection Reason</span>
+                        <span>{r.rejectionReason}</span>
+                      </div>
+                    ) : null}
                     {r.status === "pending" ? (
                       <div className="deal-actions">
                         <button
@@ -329,7 +347,10 @@ export default function ProductionView() {
                         <button
                           className="secondary danger-button"
                           type="button"
-                          onClick={() => updateRequest({ id: r._id, body: { status: "rejected" } })}
+                          onClick={() => {
+                            const reason = typeof window !== "undefined" ? window.prompt("Enter reason for rejection:") || "" : "";
+                            updateRequest({ id: r._id, body: { status: "rejected", rejectionReason: reason } });
+                          }}
                         >
                           Reject
                         </button>

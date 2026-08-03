@@ -56,24 +56,9 @@ function ApprovalCard({
 
 export default function ApprovalsView() {
   const { data = [], isLoading } = useGetApprovalsQuery();
-  const [createApproval] = useCreateApprovalMutation();
   const [approve] = useApproveApprovalMutation();
   const [reject] = useRejectApprovalMutation();
   const [showArchive, setShowArchive] = useState(false);
-  const [form, setForm] = useState({ kind: "deal" as "deal" | "expense", title: "", amount: "", monthIndex: 0, note: "" });
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!form.title.trim()) return;
-    await createApproval({
-      kind: form.kind,
-      title: form.title.trim(),
-      amount: Number(form.amount) || 0,
-      monthIndex: form.monthIndex,
-      note: form.note,
-    });
-    setForm({ ...form, title: "", amount: "", note: "" });
-  };
 
   const onApprove = (id: string) => approve(id);
   const onReject = (id: string) => {
@@ -96,44 +81,6 @@ export default function ApprovalsView() {
         </div>
         <div className="asof">Review pending deals and expenses</div>
       </div>
-
-      <section className="section soft-section">
-        <div className="section-head">
-          <h2>Submit for approval</h2>
-        </div>
-        <div className="section-body">
-          <form className="form-grid" onSubmit={handleSubmit}>
-            <div className="field">
-              <label htmlFor="apKind">Type</label>
-              <select id="apKind" value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value as "deal" | "expense" })}>
-                <option value="deal">Deal</option>
-                <option value="expense">Expense</option>
-              </select>
-            </div>
-            <div className="field">
-              <label htmlFor="apTitle">Title</label>
-              <input id="apTitle" required value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="What needs approval?" />
-            </div>
-            <div className="field">
-              <label htmlFor="apAmount">Amount</label>
-              <input id="apAmount" type="number" min="0" step="0.01" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} placeholder="0.00" />
-            </div>
-            <div className="field">
-              <label htmlFor="apMonth">Month</label>
-              <select id="apMonth" value={form.monthIndex} onChange={(e) => setForm({ ...form, monthIndex: Number(e.target.value) })}>
-                {months.map((m, i) => (
-                  <option key={m} value={i}>{m}</option>
-                ))}
-              </select>
-            </div>
-            <div className="field wide">
-              <label htmlFor="apNote">Note</label>
-              <input id="apNote" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} placeholder="Details for the approver" />
-            </div>
-            <button className="primary wide" type="submit">Submit for approval</button>
-          </form>
-        </div>
-      </section>
 
       <section className="section">
         <div className="section-head">

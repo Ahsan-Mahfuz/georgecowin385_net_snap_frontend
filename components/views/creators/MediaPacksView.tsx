@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { useCreatorsTeam } from "@/hooks/useCreatorsTeam";
 import { useGetTalentsQuery } from "@/redux/api/talentApi";
 import { refId } from "@/lib/adapters";
+import type { ApiTalent } from "@/redux/api/types";
 
 function talentKey(managerId: string, talentName: string): string {
   return `${managerId}::${talentName}`;
@@ -34,6 +35,7 @@ interface RosterRow {
   key: string;
   managerId: string;
   talentName: string;
+  talent: ApiTalent;
 }
 
 export default function MediaPacksView() {
@@ -43,10 +45,10 @@ export default function MediaPacksView() {
 
   const rows = useMemo<RosterRow[]>(
     () =>
-      talentData
+      (talentData as ApiTalent[])
         .map((t) => {
           const managerId = refId(t.manager);
-          return { key: talentKey(managerId, t.name), managerId, talentName: t.name };
+          return { key: talentKey(managerId, t.name), managerId, talentName: t.name, talent: t };
         })
         .sort(
           (a, b) =>
@@ -65,9 +67,6 @@ export default function MediaPacksView() {
     );
   };
 
-  // Build a printable media pack for the selected talent and hand it to the
-  // browser's print dialog (which offers "Save as PDF"). Fully client-side —
-  // no external libraries or network calls.
   const downloadMediaPack = () => {
     const chosen = rows.filter((row) => selectedKeys.includes(row.key));
     if (!chosen.length) {
@@ -76,13 +75,23 @@ export default function MediaPacksView() {
     }
     const cards = chosen
       .map((row) => {
-        const img = generatedTalentImage(row.managerId, row.talentName);
+        const t = row.talent;
+        const img = t.imageUrl || generatedTalentImage(row.managerId, row.talentName);
+        const bioText = t.bio || "No bio added yet.";
+        const handlesHtml = [
+          t.handles?.instagram ? `<p><strong>Instagram:</strong> ${t.handles.instagram}</p>` : "",
+          t.handles?.tiktok ? `<p><strong>TikTok:</strong> ${t.handles.tiktok}</p>` : "",
+          t.handles?.youtube ? `<p><strong>YouTube:</strong> ${t.handles.youtube}</p>` : "",
+        ].filter(Boolean).join("");
+
         return `
           <section class="pack">
             <img src="${img}" alt="" />
             <div class="meta">
               <h2>${row.talentName}</h2>
-              <p>Managed by ${managerName(row.managerId)}</p>
+              <p class="manager">Managed by ${managerName(row.managerId)}</p>
+              <div class="bio">${bioText}</div>
+              <div class="socials">${handlesHtml || "<p>No social handles added yet.</p>"}</div>
               <p class="brand">COWSHED CREATORS · MEDIA PACK</p>
             </div>
           </section>`;
@@ -92,12 +101,15 @@ export default function MediaPacksView() {
       <title>Cowshed Media Pack</title>
       <style>
         * { box-sizing: border-box; }
-        body { font-family: Arial, Helvetica, sans-serif; margin: 0; color: #111; }
+        body { font-family: Arial, Helvetica, sans-serif; margin: 0; color: #111; background: #fdfdfd; }
         .pack { page-break-after: always; padding: 48px; display: flex; gap: 32px; align-items: center; min-height: 100vh; }
-        .pack img { width: 45%; max-width: 420px; border-radius: 16px; }
-        .meta h2 { font-size: 44px; margin: 0 0 8px; }
-        .meta p { font-size: 20px; margin: 4px 0; color: #444; }
-        .meta .brand { margin-top: 24px; letter-spacing: 4px; font-weight: 800; font-size: 14px; color: #111; }
+        .pack img { width: 45%; max-width: 420px; border-radius: 16px; object-fit: cover; }
+        .meta { flex: 1; }
+        .meta h2 { font-size: 44px; margin: 0 0 8px; color: #111; }
+        .meta .manager { font-size: 18px; margin: 4px 0 16px; color: #666; }
+        .meta .bio { font-size: 16px; line-height: 1.5; margin-bottom: 24px; color: #333; }
+        .meta .socials p { font-size: 16px; margin: 6px 0; color: #222; }
+        .meta .brand { margin-top: 32px; letter-spacing: 4px; font-weight: 800; font-size: 14px; color: #111; }
         @media print { .pack { min-height: auto; height: 100vh; } }
       </style></head><body>${cards}</body></html>`;
     const win = window.open("", "_blank");
@@ -109,7 +121,6 @@ export default function MediaPacksView() {
     win.document.write(html);
     win.document.close();
     win.focus();
-    // Give the images a tick to decode before invoking print.
     win.onload = () => win.print();
   };
 
@@ -130,15 +141,15 @@ export default function MediaPacksView() {
         </div>
         <div className="section-body">
           <div className="notice">
-            Managers can build a media pack for any talent on the roster. Only the owning manager can
-            edit that talent&apos;s profile details.
+            Managers can build a media pack for any talent on the roster. Edit profile and social details in the Talent tab.
           </div>
         </div>
         <div className="section-body media-pack-grid">
           {rows.map((row) => {
-            // Default profile on first load: no bio, no enabled platforms.
-            const platformCount = 0;
-            const bioReady = false;
+            const t = row.talent;
+            const activeHandles = Object.values(t.handles || {}).filter(Boolean);
+            const platformCount = activeHandles.length;
+            const bioReady = Boolean(t.bio?.trim());
             return (
               <label className="media-pack-option" key={row.key}>
                 <input
@@ -146,11 +157,11 @@ export default function MediaPacksView() {
                   checked={selectedKeys.includes(row.key)}
                   onChange={() => toggleKey(row.key)}
                 />
-                <img src={generatedTalentImage(row.managerId, row.talentName)} alt="" />
+                <img src={t.imageUrl || generatedTalentImage(row.managerId, row.talentName)} alt="" />
                 <span>
                   <strong>{row.talentName}</strong>
                   <small>
-                    {managerName(row.managerId)} · {platformCount} platforms ·{" "}
+                    {managerName(row.managerId)} · {platformCount} social handle{platformCount === 1 ? "" : "s"} ·{" "}
                     {bioReady ? "Bio ready" : "Bio needed"}
                   </small>
                 </span>
