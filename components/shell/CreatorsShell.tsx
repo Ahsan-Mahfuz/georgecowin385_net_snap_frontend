@@ -9,14 +9,14 @@ import { RootState } from "@/redux/store";
 import { logoutCreators, resetPortal } from "@/redux/features/session/sessionSlice";
 import { creatorViewsByRole } from "@/config/navigation";
 import { YearSwitcher } from "./YearSwitcher";
-import { roleLabel, type EmailLead } from "@/lib/mock";
+import { roleLabel } from "@/lib/mock";
 import { money, months, currentMonthIndex } from "@/lib/format";
 import { dealRevenue } from "@/lib/pl";
-import { useGetEmailLeadsQuery } from "@/redux/api/emailLeadApi";
 import { useGetDealsQuery } from "@/redux/api/dealApi";
 import { useGetApprovalsQuery } from "@/redux/api/approvalApi";
+import { useGetProductionRequestsQuery } from "@/redux/api/productionRequestApi";
 import { useGetSettingsQuery } from "@/redux/api/settingsApi";
-import { toEmailLead, toDeal } from "@/lib/adapters";
+import { toDeal } from "@/lib/adapters";
 
 /**
  * How many things need doing on each screen. These drive the numbered badge in
@@ -24,15 +24,15 @@ import { toEmailLead, toDeal } from "@/lib/adapters";
  */
 function actionCountForView(
   viewId: string,
-  leads: EmailLead[],
   pendingApprovals: number,
   financeActions: number,
+  productionRequests: number,
 ): number {
-  if (viewId === "email-leads") return leads.filter((l) => l.category === "Deal").length;
-  if (viewId === "pr-requests") return leads.filter((l) => l.category === "PR").length;
-  if (viewId === "events") return leads.filter((l) => l.category === "Event").length;
   if (viewId === "approvals") return pendingApprovals;
   if (viewId === "finance-actions") return financeActions;
+  // Production only ever sees their own two screens, so the queue has to be
+  // visible from the sidebar or nobody knows a shoot is waiting on them.
+  if (viewId === "production-requests") return productionRequests;
   return 0;
 }
 
@@ -62,7 +62,6 @@ export function CreatorsShell({ children }: { children: React.ReactNode }) {
 
   const views = user ? creatorViewsByRole[user.role] || [] : [];
   const activeView = pathname.split("/").filter(Boolean)[1] || views[0]?.id;
-  const managerId = user?.role === "manager" ? user.id : null;
 
   // Route-level guard. The sidebar only renders permitted links, but the route is
   // still reachable by typing the URL — without this a manager could open
@@ -74,18 +73,22 @@ export function CreatorsShell({ children }: { children: React.ReactNode }) {
     }
   }, [hydrated, user, viewAllowed, views, router]);
 
-  const { data: leadData = [] } = useGetEmailLeadsQuery(managerId ? { manager: managerId } : undefined);
   const { data: dealData = [] } = useGetDealsQuery();
   const { data: approvalData = [] } = useGetApprovalsQuery();
+  const { data: productionData = [] } = useGetProductionRequestsQuery();
   const { data: settings } = useGetSettingsQuery();
 
-  const leads = useMemo(() => leadData.map(toEmailLead), [leadData]);
   const deals = useMemo(() => dealData.map(toDeal), [dealData]);
 
   // Anything waiting on a person, surfaced as a number on the sidebar link.
   const pendingApprovals = useMemo(
     () => approvalData.filter((a) => a.status === "pending").length,
     [approvalData],
+  );
+  // Anything the production team still has to schedule or turn down.
+  const productionRequests = useMemo(
+    () => productionData.filter((r) => r.status === "pending").length,
+    [productionData],
   );
   const financeActions = useMemo(
     () =>
@@ -108,7 +111,7 @@ export function CreatorsShell({ children }: { children: React.ReactNode }) {
   const targetMet = confirmed >= target;
 
   const totalActions = views.reduce(
-    (total, v) => total + actionCountForView(v.id, leads, pendingApprovals, financeActions),
+    (total, v) => total + actionCountForView(v.id, pendingApprovals, financeActions, productionRequests),
     0,
   );
 
@@ -161,7 +164,7 @@ export function CreatorsShell({ children }: { children: React.ReactNode }) {
         </div>
         <nav className="nav">
           {views.map((view) => {
-            const count = actionCountForView(view.id, leads, pendingApprovals, financeActions);
+            const count = actionCountForView(view.id, pendingApprovals, financeActions, productionRequests);
             // The P&L link carries the selected financial year so it stays in sync.
             const label = view.id === "pl-live" ? `P&L ${selectedYear}` : view.label;
             return (

@@ -12,7 +12,6 @@ import ManagersView from "./ManagersView";
 import PermissionsView from "./PermissionsView";
 import ApprovalsView from "./ApprovalsView";
 import TalentView from "./TalentView";
-import MediaPacksView from "./MediaPacksView";
 import TalentInvoicesView from "./TalentInvoicesView";
 import FinanceActionsView from "./FinanceActionsView";
 import PaymentRunsView from "./PaymentRunsView";
@@ -20,9 +19,6 @@ import ProductionChargebacksView from "./ProductionChargebacksView";
 import OverheadsView from "./OverheadsView";
 import TalentExpensesView from "./TalentExpensesView";
 import ExpensesView from "./ExpensesView";
-import EmailLeadsView from "./EmailLeadsView";
-import PrRequestsView from "./PrRequestsView";
-import EventsView from "./EventsView";
 
 export const creatorRegistry: Record<string, ComponentType> = {
   "pl-live": PlLiveView,
@@ -38,7 +34,6 @@ export const creatorRegistry: Record<string, ComponentType> = {
   "permissions": PermissionsView,
   "approvals": ApprovalsView,
   "talent": TalentView,
-  "media-packs": MediaPacksView,
   "talent-invoices": TalentInvoicesView,
   "finance-actions": FinanceActionsView,
   "payment-runs": PaymentRunsView,
@@ -46,7 +41,4 @@ export const creatorRegistry: Record<string, ComponentType> = {
   "overheads": OverheadsView,
   "talent-expenses": TalentExpensesView,
   "expenses": ExpensesView,
-  "email-leads": EmailLeadsView,
-  "pr-requests": PrRequestsView,
-  "events": EventsView,
 };

@@ -129,6 +129,10 @@ export function toCollectiveDeal(d: ApiCollectiveDeal): CollectiveDeal {
       monthIndex: i.monthIndex,
       amount: Number(i.amount || 0),
       stage: i.stage || "Scheduled",
+      // Each payment carries its own terms — dropping them here made every row
+      // fall back to the deal default on screen.
+      paymentTerm: i.paymentTerm || "",
+      customPaymentDays: Number(i.customPaymentDays || 0),
       xeroInvoiceId: i.xeroInvoiceId || "",
       xeroInvoiceNumber: i.xeroInvoiceNumber || "",
       xeroStatus: i.xeroStatus || "",

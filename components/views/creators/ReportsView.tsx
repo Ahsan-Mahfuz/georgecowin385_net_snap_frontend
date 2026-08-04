@@ -1,16 +1,19 @@
 "use client";
 
 import { useState } from "react";
-import { months, money, sum, stageClass } from "@/lib/format";
+import { months, money, sum, stageClass, currentMonthIndex } from "@/lib/format";
 import { reportStages, type Deal } from "@/lib/mock";
 import { useCreatorsTeam } from "@/hooks/useCreatorsTeam";
-import { useGetTalentsQuery } from "@/redux/api/talentApi";
+import { useGetTalentsQuery, useSendTalentReportMutation } from "@/redux/api/talentApi";
 import { useGetDealsQuery } from "@/redux/api/dealApi";
 import { useGetExpensesQuery } from "@/redux/api/expenseApi";
 import { useGetPaymentRunsQuery } from "@/redux/api/paymentRunApi";
 import { nextRunDate, runDatesFrom } from "@/lib/paymentRuns";
 import { toDeal, talentNamesForManager, refId } from "@/lib/adapters";
 import type { ApiExpense, ApiTalent } from "@/redux/api/types";
+import { useSelector } from "react-redux";
+import { RootState } from "@/redux/store";
+import { apiErrorMessage, useToast } from "@/components/ui/Toast";
 
 // Set by the component so module-level helpers resolve live data.
 let liveUsers: { id: string; name: string }[] = [];
@@ -166,6 +169,11 @@ export default function ReportsView() {
   const [remittanceMonthIndex, setRemittanceMonthIndex] = useState<number>(6);
   const [remittanceStartDate, setRemittanceStartDate] = useState<string>("2026-01-01");
   const [remittanceEndDate, setRemittanceEndDate] = useState<string>("2026-12-31");
+  // Which month's statement gets emailed to the talent.
+  const [reportMonthIndex, setReportMonthIndex] = useState<number>(currentMonthIndex());
+  const [sendTalentReport, { isLoading: sendingReport }] = useSendTalentReportMutation();
+  const toast = useToast();
+  const year = useSelector((s: RootState) => s.year.selectedYear);
 
   const talents = reportTalentOptions();
 
@@ -382,8 +390,32 @@ export default function ReportsView() {
       : talents[0]?.key || null;
   const selected = talents.find((talent) => talent.key === activeReportKey);
 
-  const selectedEmail = "";
+  // Was hard-coded empty, so this screen always claimed the talent had no email
+  // however carefully one had been entered on the Talent tab.
+  const selectedReportTalent = selected
+    ? (talentData as ApiTalent[]).find(
+        (t) => t.name === selected.talentName && refId(t.manager) === selected.managerId,
+      )
+    : null;
+  const selectedEmail = selectedReportTalent?.invoiceEmail || selectedReportTalent?.email || "";
   const upcomingRunDate = nextRunDate(runDates);
+
+  const handleSendReport = async () => {
+    if (!selectedReportTalent) return toast.error("Pick a talent first.");
+    if (!selectedEmail) {
+      return toast.error(`Add an email address for ${selected?.talentName} on the Talent tab first.`);
+    }
+    try {
+      const result = await sendTalentReport({
+        id: selectedReportTalent._id,
+        monthIndex: reportMonthIndex,
+        year,
+      }).unwrap();
+      toast.success(`${result.month} statement sent to ${result.to}.`);
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Could not send that report."));
+    }
+  };
   const reportStageList = reportStages as ReportStage[];
 
   // Group live deals (for the selected talent, or all) into report stage buckets.
@@ -493,15 +525,29 @@ export default function ReportsView() {
             <button className="secondary" onClick={() => navigateTalent("next")}>
               Next
             </button>
-            <button className="primary">Send to talent</button>
+            <select
+              className="compact-select"
+              aria-label="Month to send"
+              value={reportMonthIndex}
+              onChange={(e) => setReportMonthIndex(Number(e.target.value))}
+            >
+              {months.map((month, index) => (
+                <option key={month} value={index}>
+                  {month}
+                </option>
+              ))}
+            </select>
+            <button className="primary" type="button" onClick={handleSendReport} disabled={sendingReport}>
+              {sendingReport ? "Sending…" : "Send to talent"}
+            </button>
           </div>
         </div>
         {selected ? (
           <div className="section-body">
             <div className="notice">
               {selectedEmail
-                ? `Report will send to ${selectedEmail}.`
-                : "Add this talent's email in the Talent tab before sending their weekly report."}
+                ? `${months[reportMonthIndex]} statement will be emailed to ${selectedEmail}.`
+                : "Add this talent's email in the Talent tab before sending their report."}
             </div>
           </div>
         ) : null}

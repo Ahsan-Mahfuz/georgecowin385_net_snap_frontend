@@ -5,12 +5,16 @@ import { money } from "@/lib/format";
 import { productionItems } from "@/lib/mock";
 import { useCreatorsTeam } from "@/hooks/useCreatorsTeam";
 import { useGetTalentsQuery } from "@/redux/api/talentApi";
-import { useGetSettingsQuery } from "@/redux/api/settingsApi";
+import { useGetSettingsQuery, useUpdateSettingsMutation } from "@/redux/api/settingsApi";
 import {
   useGetProductionRequestsQuery,
   useCreateProductionRequestMutation,
   useUpdateProductionRequestMutation,
+  useDismissProductionRejectionMutation,
 } from "@/redux/api/productionRequestApi";
+import { useSelector } from "react-redux";
+import { RootState } from "@/redux/store";
+import { apiErrorMessage, useToast } from "@/components/ui/Toast";
 import { talentNamesForManager, refId } from "@/lib/adapters";
 import type { ApiTalent, ApiProductionRequest } from "@/redux/api/types";
 
@@ -52,7 +56,36 @@ export default function ProductionView() {
   const { data: requests = [], isLoading } = useGetProductionRequestsQuery();
   const [createRequest] = useCreateProductionRequestMutation();
   const [updateRequest] = useUpdateProductionRequestMutation();
+  const [dismissRejection] = useDismissProductionRejectionMutation();
+  const toast = useToast();
+  const user = useSelector((s: RootState) => s.session.user);
+  // Scheduling, completing and rejecting a shoot belongs to the production team
+  // alone. This screen is the managers' and admins' view of the same queue, so
+  // it shows the state without offering the decisions. The API enforces it too.
+  const canDecide = user?.role === "production";
+  // Day rates are production's, admin's and operations' to set — nobody else's.
+  const canEditRates = ["admin", "operations", "production"].includes(user?.role || "");
   const productionRates: Record<string, number> = settings?.productionRates || {};
+  const [updateSettings, { isLoading: savingRates }] = useUpdateSettingsMutation();
+  const [rateDrafts, setRateDrafts] = useState<Record<string, string>>({});
+
+  const handleSaveRates = async () => {
+    const rates: Record<string, number> = { ...productionRates };
+    for (const [role, raw] of Object.entries(rateDrafts)) {
+      const value = Number(String(raw).replace(/[^0-9.]/g, ""));
+      if (!Number.isFinite(value) || value < 0) {
+        return toast.error(`Enter a valid day rate for ${role}.`);
+      }
+      rates[role] = value;
+    }
+    try {
+      await updateSettings({ productionRates: rates }).unwrap();
+      setRateDrafts({});
+      toast.success("Production day rates saved.");
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Could not save those rates."));
+    }
+  };
 
   const [activeTab, setActiveTab] = useState<ProductionTab>("requests");
   const [activeManagerId, setActiveManagerId] = useState<string>(requestManagers[0]?.id ?? "");
@@ -143,17 +176,38 @@ export default function ProductionView() {
           <section className="section soft-section">
             <div className="section-head">
               <h2>Production rates</h2>
-              <span className="pill admin">Admin + Operations + Production</span>
+              <span className={`pill ${canEditRates ? "admin" : ""}`}>
+                {canEditRates ? "You can change these" : "View only"}
+              </span>
             </div>
             <div className="section-body">
               <div className="form-grid">
                 {productionItems.map((item) => (
                   <div className="field" key={item}>
-                    <label>{item}</label>
-                    <input defaultValue={currencyInput(productionRates[item])} inputMode="decimal" />
+                    <label htmlFor={`rate-${item}`}>{item}</label>
+                    <input
+                      id={`rate-${item}`}
+                      inputMode="decimal"
+                      readOnly={!canEditRates}
+                      value={
+                        canEditRates
+                          ? (rateDrafts[item] ?? String(productionRates[item] ?? 0))
+                          : currencyInput(productionRates[item])
+                      }
+                      onChange={(e) => setRateDrafts({ ...rateDrafts, [item]: e.target.value })}
+                    />
                   </div>
                 ))}
               </div>
+              {canEditRates ? (
+                <button className="primary" type="button" onClick={handleSaveRates} disabled={savingRates}>
+                  {savingRates ? "Saving…" : "Save rates"}
+                </button>
+              ) : (
+                <div className="notice soft-note">
+                  Day rates are set by production, admin or operations. Ask one of them to change these.
+                </div>
+              )}
             </div>
           </section>
         </div>
@@ -292,11 +346,36 @@ export default function ProductionView() {
             </div>
           ) : null}
 
-          {requests.filter((r) => r.status === "rejected").map((r) => (
-            <div key={r._id} className="notice" style={{ borderLeft: "4px solid #e53e3e", background: "#fff5f5" }}>
-              <strong>Production Rejected ({r.talentName}):</strong> {r.rejectionReason || "No rejection reason specified."} (Shoot Date: {displayDate(r.shootDate)})
-            </div>
-          ))}
+          {/* Rejection notices stay until they are read and cleared away. */}
+          {requests
+            .filter((r) => r.status === "rejected" && !r.rejectionDismissedAt)
+            .map((r) => (
+              <div
+                key={r._id}
+                className="notice rejection-notice"
+                style={{ borderLeft: "4px solid #e53e3e", background: "#fff5f5" }}
+              >
+                <span>
+                  <strong>Production Rejected ({r.talentName}):</strong>{" "}
+                  {r.rejectionReason || "No rejection reason specified."} (Shoot Date:{" "}
+                  {displayDate(r.shootDate)})
+                </span>
+                <button
+                  className="ghost dismiss-notice"
+                  type="button"
+                  aria-label={`Dismiss the rejection notice for ${r.talentName}`}
+                  onClick={async () => {
+                    try {
+                      await dismissRejection(r._id).unwrap();
+                    } catch (err) {
+                      toast.error(apiErrorMessage(err, "Could not dismiss that notice."));
+                    }
+                  }}
+                >
+                  Dismiss
+                </button>
+              </div>
+            ))}
 
           <section className="section">
             <div className="section-head">
@@ -335,7 +414,14 @@ export default function ProductionView() {
                         <span>{r.rejectionReason}</span>
                       </div>
                     ) : null}
-                    {r.status === "pending" ? (
+                    {!canDecide ? (
+                      r.status === "pending" ? (
+                        <div className="deal-line muted">
+                          <span>Waiting on</span>
+                          <span>Production to schedule or turn down</span>
+                        </div>
+                      ) : null
+                    ) : r.status === "pending" ? (
                       <div className="deal-actions">
                         <button
                           className="primary"

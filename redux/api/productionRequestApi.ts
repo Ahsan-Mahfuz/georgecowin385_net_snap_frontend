@@ -22,6 +22,11 @@ export const productionRequestApi = baseApi.injectEndpoints({
       query: ({ id, body }) => ({ url: `/production-request/${id}`, method: "PATCH", body }),
       invalidatesTags: ["ProductionRequest"],
     }),
+    // Clears a rejection notice off the screen; the request keeps its status.
+    dismissProductionRejection: builder.mutation<ApiProductionRequest, string>({
+      query: (id) => ({ url: `/production-request/${id}/dismiss-rejection`, method: "POST" }),
+      invalidatesTags: ["ProductionRequest"],
+    }),
     requestProductionChargeback: builder.mutation<ApiProductionRequest, string>({
       query: (id) => ({ url: `/production-request/${id}/request-chargeback`, method: "POST" }),
       invalidatesTags: ["ProductionRequest"],
@@ -37,6 +42,7 @@ export const {
   useGetProductionRequestsQuery,
   useCreateProductionRequestMutation,
   useUpdateProductionRequestMutation,
+  useDismissProductionRejectionMutation,
   useRequestProductionChargebackMutation,
   useDeleteProductionRequestMutation,
 } = productionRequestApi;

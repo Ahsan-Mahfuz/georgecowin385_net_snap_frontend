@@ -119,8 +119,12 @@ export interface ApiProductionRequest {
   status: "pending" | "scheduled" | "completed" | "rejected";
   note?: string;
   rejectionReason?: string;
+  /** Set once the rejection notice has been read and cleared off the screen. */
+  rejectionDismissedAt?: string | null;
   /** Set once finance has raised the chargeback against the manager's P&L. */
   chargebackRequestedAt?: string | null;
+  /** The talent bill this shoot has already been deducted from. */
+  xeroBillId?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -274,6 +278,8 @@ export interface ApiCollectiveDeal {
   customPaymentDays: number;
   monthValues: number[];
   installments?: ApiInstallment[];
+  /** Per-month payment terms sent when saving the schedule (write-only). */
+  installmentTerms?: { monthIndex: number; paymentTerm?: string; customPaymentDays?: number }[];
   xeroContactId?: string;
   xeroContactName?: string;
   xeroOrg: string;

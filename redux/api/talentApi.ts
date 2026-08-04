@@ -8,7 +8,24 @@ export const talentApi = baseApi.injectEndpoints({
       transformResponse: (res: ApiEnvelope<ApiTalent[]>) => res.data,
       providesTags: ["Talent"],
     }),
-    createTalent: builder.mutation<ApiTalent, { name: string; email?: string; manager: string }>({
+    // Bank details are part of creating a talent, not an afterthought — they are
+    // what the Xero supplier contact is built from.
+    createTalent: builder.mutation<
+      ApiTalent,
+      { name: string; email?: string; manager: string } & Partial<
+        Pick<
+          ApiTalent,
+          | "invoiceName"
+          | "invoiceEmail"
+          | "invoiceAddress"
+          | "bankName"
+          | "accountName"
+          | "sortCode"
+          | "accountNumber"
+          | "vatNumber"
+        >
+      >
+    >({
       query: (body) => ({ url: "/talent", method: "POST", body }),
       invalidatesTags: ["Talent"],
     }),
@@ -22,6 +39,17 @@ export const talentApi = baseApi.injectEndpoints({
       query: ({ id, body }) => ({ url: `/talent/${id}`, method: "PATCH", body }),
       invalidatesTags: ["Talent"],
     }),
+    // Email a talent their statement for one month.
+    sendTalentReport: builder.mutation<
+      { to: string; deals: number; payable: number; month: string },
+      { id: string; monthIndex: number; year?: number }
+    >({
+      query: ({ id, ...body }) => ({ url: `/talent/${id}/send-report`, method: "POST", body }),
+      transformResponse: (res: {
+        data: { to: string; deals: number; payable: number; month: string };
+      }) => res.data,
+      invalidatesTags: ["Talent"],
+    }),
     deleteTalent: builder.mutation<null, string>({
       query: (id) => ({ url: `/talent/${id}`, method: "DELETE" }),
       invalidatesTags: ["Talent"],
@@ -33,5 +61,6 @@ export const {
   useGetTalentsQuery,
   useCreateTalentMutation,
   useUpdateTalentMutation,
+  useSendTalentReportMutation,
   useDeleteTalentMutation,
 } = talentApi;
