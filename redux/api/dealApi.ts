@@ -24,6 +24,18 @@ export const dealApi = baseApi.injectEndpoints({
       query: (id) => ({ url: `/deal/${id}/xero-invoice`, method: "POST" }),
       invalidatesTags: ["Deal"],
     }),
+    // Recharge a job's talent expenses to the brand as their own Xero invoice,
+    // separate from the deal fee.
+    invoiceTalentExpenses: builder.mutation<
+      { invoiceNumber: string; status: string; expenses: number; total: number },
+      string
+    >({
+      query: (id) => ({ url: `/deal/${id}/expense-invoice`, method: "POST" }),
+      transformResponse: (
+        res: ApiEnvelope<{ invoiceNumber: string; status: string; expenses: number; total: number }>,
+      ) => res.data,
+      invalidatesTags: ["Deal", "Expense"],
+    }),
     markDealInvoiced: builder.mutation<ApiDeal, string>({
       query: (id) => ({ url: `/deal/${id}/mark-invoiced`, method: "POST" }),
       invalidatesTags: ["Deal"],
@@ -79,6 +91,7 @@ export const {
   useUpdateDealMutation,
   useDeleteDealMutation,
   useCreateDealInvoiceMutation,
+  useInvoiceTalentExpensesMutation,
   useMarkDealInvoicedMutation,
   useMarkDealPaidMutation,
   useSendDealRemittanceMutation,

@@ -22,6 +22,7 @@ export const creatorViewsByRole: Record<Role, ViewItem[]> = {
     { id: "media-packs", label: "Media Packs" },
     { id: "talent-invoices", label: "Talent Invoices" },
     { id: "finance-actions", label: "Finance Actions" },
+    { id: "payment-runs", label: "Payment Runs" },
     { id: "production-chargebacks", label: "Production chargebacks" },
     { id: "overheads", label: "Overheads" },
     { id: "talent-expenses", label: "Talent Expenses" },
@@ -37,6 +38,7 @@ export const creatorViewsByRole: Record<Role, ViewItem[]> = {
     { id: "media-packs", label: "Media Packs" },
     { id: "talent-invoices", label: "Talent Invoices" },
     { id: "finance-actions", label: "Actions" },
+    { id: "payment-runs", label: "Payment Runs" },
     { id: "production-chargebacks", label: "Production chargebacks" },
   ],
   operations: [
@@ -101,6 +103,7 @@ export const allCreatorViews: ViewItem[] = [
   { id: "media-packs", label: "Media Packs" },
   { id: "talent-invoices", label: "Talent Invoices" },
   { id: "finance-actions", label: "Finance Actions" },
+  { id: "payment-runs", label: "Payment Runs" },
   { id: "production-chargebacks", label: "Production chargebacks" },
   { id: "overheads", label: "Overheads" },
   { id: "talent-expenses", label: "Talent Expenses" },

@@ -6,8 +6,11 @@ import { reportStages, type Deal } from "@/lib/mock";
 import { useCreatorsTeam } from "@/hooks/useCreatorsTeam";
 import { useGetTalentsQuery } from "@/redux/api/talentApi";
 import { useGetDealsQuery } from "@/redux/api/dealApi";
+import { useGetExpensesQuery } from "@/redux/api/expenseApi";
+import { useGetPaymentRunsQuery } from "@/redux/api/paymentRunApi";
+import { nextRunDate, runDatesFrom } from "@/lib/paymentRuns";
 import { toDeal, talentNamesForManager, refId } from "@/lib/adapters";
-import type { ApiTalent } from "@/redux/api/types";
+import type { ApiExpense, ApiTalent } from "@/redux/api/types";
 
 // Set by the component so module-level helpers resolve live data.
 let liveUsers: { id: string; name: string }[] = [];
@@ -43,7 +46,10 @@ interface CrmDeal {
   campaignName: string;
   amount: number;
   currency?: "GBP" | "USD";
+  costRate?: number;
   xeroInvoiceId?: string;
+  xeroInvoiceNumber?: string;
+  remittancePaidAt?: string;
 }
 
 function toReportCrmDeal(d: Deal): CrmDeal {
@@ -56,6 +62,10 @@ function toReportCrmDeal(d: Deal): CrmDeal {
     campaignName: d.campaignName || "",
     amount: sum(d.monthValues || []),
     currency: d.currency,
+    costRate: d.costRate,
+    xeroInvoiceId: d.xeroInvoiceId,
+    xeroInvoiceNumber: d.xeroInvoiceNumber,
+    remittancePaidAt: d.remittancePaidAt,
   };
 }
 
@@ -102,24 +112,6 @@ function displayDate(value: string): string {
   return date.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
 }
 
-function paymentRunDate(year: number, monthIndex: number, runDay: number): string {
-  const runDate = new Date(year, monthIndex, runDay);
-  if (runDate.getDay() === 6) runDate.setDate(runDate.getDate() - 1);
-  if (runDate.getDay() === 0) runDate.setDate(runDate.getDate() - 2);
-  return runDate.toISOString().slice(0, 10);
-}
-
-function nextPaymentRunDate(reference: Date = new Date()): string {
-  const today = new Date(reference.getFullYear(), reference.getMonth(), reference.getDate());
-  const thisMonthRuns = [14, 28].map((day) =>
-    paymentRunDate(today.getFullYear(), today.getMonth(), day)
-  );
-  const nextRun = thisMonthRuns.find((runDate) => new Date(`${runDate}T00:00:00`) >= today);
-  if (nextRun) return nextRun;
-  const nextMonth = new Date(today.getFullYear(), today.getMonth() + 1, 1);
-  return paymentRunDate(nextMonth.getFullYear(), nextMonth.getMonth(), 14);
-}
-
 function monthDateRange(monthIndex: number): { startDate: string; endDate: string; label: string } {
   const index = Math.min(11, Math.max(0, Number(monthIndex || 0)));
   const start = new Date(2026, index, 1);
@@ -136,13 +128,20 @@ function dealGbpAmount(deal: CrmDeal): number {
   return deal.currency === "USD" ? amount * 0.78 : amount;
 }
 
-// talentExpenses is empty on first load, so per-deal expense totals are always 0.
-function dealTalentExpenseTotal(): number {
-  return 0;
+/**
+ * Reimbursable expenses on this job. The talent keeps 100% of these on top of
+ * their deal share, so the report is wrong without them — it used to be hard
+ * wired to zero, which is why expenses never showed up here.
+ */
+function expenseTotalFor(expenses: ApiExpense[], dealId: string): number {
+  return expenses
+    .filter((e) => e.kind === "talent" && refId(e.deal) === dealId)
+    .reduce((total, e) => total + Number(e.amount || 0), 0);
 }
 
-function talentPayableAmount(deal: CrmDeal): number {
-  return dealGbpAmount(deal) * 0.8 + dealTalentExpenseTotal();
+function payableFor(expenses: ApiExpense[], deal: CrmDeal): number {
+  const share = Number(deal.costRate ?? 80) / 100;
+  return dealGbpAmount(deal) * share + expenseTotalFor(expenses, deal.id);
 }
 
 const reportsSubtitleFallback = "Talent deal stage and payment run reporting";
@@ -151,9 +150,14 @@ export default function ReportsView() {
   const { users } = useCreatorsTeam();
   const { data: talentData = [] } = useGetTalentsQuery();
   const { data: dealData = [] } = useGetDealsQuery();
+  const { data: expenseData = [] } = useGetExpensesQuery({ kind: "talent" });
+  const { data: paymentRuns = [] } = useGetPaymentRunsQuery();
   liveUsers = users;
   liveTalents = talentData as ApiTalent[];
   const liveReportDeals = dealData.map(toDeal);
+  const runDates = runDatesFrom(paymentRuns);
+  const dealTalentExpenseTotal = (dealId: string) => expenseTotalFor(expenseData, dealId);
+  const talentPayableAmount = (deal: CrmDeal) => payableFor(expenseData, deal);
 
   const [activeReportsTab, setActiveReportsTab] = useState<"status" | "remittance">("status");
   const [selectedReportTalentKey, setSelectedReportTalentKey] = useState<string | null>(null);
@@ -225,7 +229,7 @@ export default function ReportsView() {
       : [];
 
     const dealTotal = paidDeals.reduce((total, deal) => total + talentPayableAmount(deal), 0);
-    const expenseTotal = paidDeals.reduce((total) => total + dealTalentExpenseTotal(), 0);
+    const expenseTotal = paidDeals.reduce((total, deal) => total + dealTalentExpenseTotal(deal.id), 0);
 
     return (
       <>
@@ -344,17 +348,20 @@ export default function ReportsView() {
                   </tr>
                 </thead>
                 <tbody>
-                  {paidDeals.map((deal) => (
-                    <tr key={deal.id}>
-                      <td>-</td>
-                      <td>{deal.company || "-"}</td>
-                      <td>{deal.campaignName || "-"}</td>
-                      <td>{money(dealGbpAmount(deal))}</td>
-                      <td>{money(talentPayableAmount(deal))}</td>
-                      <td>{deal.xeroInvoiceId || "No invoice attached"}</td>
-                      <td>No expenses</td>
-                    </tr>
-                  ))}
+                  {paidDeals.map((deal) => {
+                    const expenses = dealTalentExpenseTotal(deal.id);
+                    return (
+                      <tr key={deal.id}>
+                        <td>{deal.remittancePaidAt ? displayDate(deal.remittancePaidAt) : "-"}</td>
+                        <td>{deal.company || "-"}</td>
+                        <td>{deal.campaignName || "-"}</td>
+                        <td>{money(dealGbpAmount(deal))}</td>
+                        <td>{money(talentPayableAmount(deal))}</td>
+                        <td>{deal.xeroInvoiceNumber || deal.xeroInvoiceId || "No invoice attached"}</td>
+                        <td>{expenses ? money(expenses) : "No expenses"}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             ) : (
@@ -376,7 +383,7 @@ export default function ReportsView() {
   const selected = talents.find((talent) => talent.key === activeReportKey);
 
   const selectedEmail = "";
-  const nextRunDate = nextPaymentRunDate();
+  const upcomingRunDate = nextRunDate(runDates);
   const reportStageList = reportStages as ReportStage[];
 
   // Group live deals (for the selected talent, or all) into report stage buckets.
@@ -410,7 +417,7 @@ export default function ReportsView() {
       stage === "Paid"
         ? "Paid to talent"
         : stage === "On Next Payment Run"
-          ? `Next run: ${displayDate(nextRunDate)}`
+          ? `Next run: ${displayDate(upcomingRunDate)}`
           : `${deals.length} deals`;
     return (
       <div key={stage} className={`report-stage ${stageClass(stage)}`}>
@@ -422,8 +429,8 @@ export default function ReportsView() {
         <div className="report-stage-list">
           {deals.length ? (
             deals.map((deal) => {
-              const talentShare = dealGbpAmount(deal) * 0.8;
-              const talentExpenses = dealTalentExpenseTotal();
+              const talentShare = dealGbpAmount(deal) * (Number(deal.costRate ?? 80) / 100);
+              const talentExpenses = dealTalentExpenseTotal(deal.id);
               const showDate = stage !== "On Next Payment Run";
               const dateLabel = stage === "Paid" ? "Paid date" : "Due date";
               return (
@@ -504,11 +511,11 @@ export default function ReportsView() {
               <div className="payment-run-banner">
                 <div>
                   <span>Next payment run</span>
-                  <strong>{displayDate(nextRunDate)}</strong>
+                  <strong>{displayDate(upcomingRunDate)}</strong>
                 </div>
                 <p>
-                  Payment runs are made on the 14th and 28th. If either date falls on a weekend,
-                  payment is made the Friday before.
+                  Payment run dates are maintained under Payment Runs, and this is the next one. The
+                  Xero bill for a talent carries the same date as its reference and due date.
                 </p>
               </div>
             </div>

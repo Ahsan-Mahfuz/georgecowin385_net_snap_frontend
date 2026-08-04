@@ -3744,6 +3744,39 @@ button.small,
   font-weight: 800;
 }
 
+/* Something did not reach Xero — say so where the detail is, not in a toast
+   that has already gone. */
+.contact-warning {
+  color: var(--rose);
+  font-weight: 800;
+}
+
+/* A collapsible section of finished work, kept out of the way at the bottom of
+   Finance Actions. */
+.collapse-head {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.collapse-head h2 {
+  margin: 0;
+}
+
+.collapse-head .collapse-hint {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--muted);
+}
+
 /* Delegation controls on PR / Event request cards. */
 .delegate-control {
   display: flex;

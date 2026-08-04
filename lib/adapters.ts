@@ -9,11 +9,11 @@ import type {
   ApiOverhead,
   ApiCollectiveDeal,
   ApiTalent,
-  ApiManagerRef,
 } from "@/redux/api/types";
 import type { Profile, Deal, EmailLead, OverheadRow, CollectiveDeal } from "@/lib/mock";
 
-export function refId(ref: ApiManagerRef | string | undefined): string {
+/** The id of a reference, whether the API populated it or left it as an id. */
+export function refId(ref: { _id: string } | string | undefined | null): string {
   if (!ref) return "";
   return typeof ref === "string" ? ref : ref._id;
 }
@@ -72,6 +72,8 @@ export function toDeal(d: ApiDeal): Deal {
     financeStatus: d.financeStatus,
     invoiceDate: d.invoiceDate,
     remittanceStatus: d.remittanceStatus,
+    remittanceSentAt: d.remittanceSentAt,
+    remittancePaidAt: d.remittancePaidAt,
     xeroBillId: d.xeroBillId,
     xeroBillNumber: d.xeroBillNumber,
     xeroBillState: d.xeroBillState,

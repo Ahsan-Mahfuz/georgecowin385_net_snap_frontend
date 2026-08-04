@@ -31,6 +31,8 @@ interface RosterRow {
   xeroContactId: string;
   xeroContactName: string;
   xeroBankAccount: string;
+  /** What happened last time the portal wrote these details to Xero. */
+  xeroSyncStatus: string;
 }
 
 interface TalentProfile {
@@ -87,6 +89,7 @@ function rosterRowsForManager(managerId: string): RosterRow[] {
         xeroContactId: talent.xeroContactId || "",
         xeroContactName: talent.xeroContactName || "",
         xeroBankAccount: talent.xeroBankAccount || "",
+        xeroSyncStatus: talent.xeroSyncStatus || "",
       };
     })
     .sort((a, b) => b.total - a.total || a.talentName.localeCompare(b.talentName));
@@ -726,6 +729,17 @@ export default function TalentView() {
                               {row.xeroBankAccount ? `Bank ${row.xeroBankAccount}` : "No bank details in Xero"}
                             </small>
                           ) : null}
+                          {/* A new talent is pushed to Xero on save; say so, and say
+                              plainly when it did not get there. */}
+                          {row.xeroSyncStatus ? (
+                            <small
+                              className={`field-hint ${
+                                row.xeroSyncStatus.startsWith("Not sent") ? "contact-warning" : "contact-matched"
+                              }`}
+                            >
+                              {row.xeroSyncStatus}
+                            </small>
+                          ) : null}
                         </td>
                         <td>{managerName(row.managerId)}</td>
                         <td>{money(row.total)}</td>
@@ -843,12 +857,19 @@ export default function TalentView() {
         </div>
         <div className="section-stack">
           {selectedTalent ? (
+            /*
+             * Keyed on the talent id: both panels seed their fields from props on
+             * first render only, so without a key React reuses the instance and
+             * clicking a second talent leaves the first one's details on screen.
+             */
             <>
               <TalentProfileSection
+                key={`profile-${selectedTalent.id}`}
                 talent={(talentData as ApiTalent[]).find((t) => t._id === selectedTalent.id)}
               />
               <section className="section">
                 <TalentInvoiceDetailsForm
+                  key={`invoicing-${selectedTalent.id}`}
                   talent={(talentData as ApiTalent[]).find((t) => t._id === selectedTalent.id)}
                 />
               </section>

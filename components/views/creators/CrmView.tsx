@@ -14,7 +14,8 @@ import {
   useDeleteDealMutation,
   useGetXeroContactsQuery,
 } from "@/redux/api/dealApi";
-import { toDeal, talentNamesForManager } from "@/lib/adapters";
+import { useGetApprovalsQuery } from "@/redux/api/approvalApi";
+import { toDeal, talentNamesForManager, refId } from "@/lib/adapters";
 import type { ApiDeal, ApiTalent } from "@/redux/api/types";
 import { useConfirm } from "@/components/ui/ConfirmProvider";
 import { apiErrorMessage, useToast } from "@/components/ui/Toast";
@@ -45,6 +46,28 @@ export default function CrmView() {
 
   const deals = useMemo(() => dealData.map(toDeal), [dealData]);
   const managerName = (id: string) => managers.find((m) => m.id === id)?.name || id;
+
+  /*
+   * Who each deal is waiting on. Without this the CRM only says "awaiting
+   * approval", so there is no way to tell from here whether the request actually
+   * reached anyone — which is exactly what "approvals aren't going through"
+   * looked like.
+   */
+  const { data: approvalData = [] } = useGetApprovalsQuery();
+  const approverForDeal = useMemo(() => {
+    const map = new Map<string, string>();
+    approvalData
+      .filter((a) => a.kind === "deal" && a.status === "pending" && a.deal)
+      .forEach((a) => {
+        const dealId = refId(a.deal);
+        const approver = a.approver;
+        map.set(
+          dealId,
+          typeof approver === "string" || !approver ? "an admin" : approver.name || "an admin",
+        );
+      });
+    return map;
+  }, [approvalData]);
 
   const [managerFilter, setManagerFilter] = useState("all");
   const [stageFilter, setStageFilter] = useState("all");
@@ -448,7 +471,9 @@ export default function CrmView() {
                         d.approvalStatus &&
                         d.approvalStatus !== "Approved" ? (
                           <span className={`crm-card-flag ${d.approvalStatus === "Rejected" ? "is-rejected" : ""}`}>
-                            {d.approvalStatus === "Rejected" ? "Rejected" : "Awaiting approval"}
+                            {d.approvalStatus === "Rejected"
+                              ? "Rejected"
+                              : `Waiting on ${approverForDeal.get(d.id) || "an admin"}`}
                           </span>
                         ) : null}
                       </div>

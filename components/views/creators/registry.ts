@@ -15,6 +15,7 @@ import TalentView from "./TalentView";
 import MediaPacksView from "./MediaPacksView";
 import TalentInvoicesView from "./TalentInvoicesView";
 import FinanceActionsView from "./FinanceActionsView";
+import PaymentRunsView from "./PaymentRunsView";
 import ProductionChargebacksView from "./ProductionChargebacksView";
 import OverheadsView from "./OverheadsView";
 import TalentExpensesView from "./TalentExpensesView";
@@ -40,6 +41,7 @@ export const creatorRegistry: Record<string, ComponentType> = {
   "media-packs": MediaPacksView,
   "talent-invoices": TalentInvoicesView,
   "finance-actions": FinanceActionsView,
+  "payment-runs": PaymentRunsView,
   "production-chargebacks": ProductionChargebacksView,
   "overheads": OverheadsView,
   "talent-expenses": TalentExpensesView,

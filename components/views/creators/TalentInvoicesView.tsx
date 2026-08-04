@@ -12,6 +12,8 @@ import {
   useSyncXeroMutation,
 } from "@/redux/api/dealApi";
 import { useGetExpensesQuery } from "@/redux/api/expenseApi";
+import { useGetPaymentRunsQuery } from "@/redux/api/paymentRunApi";
+import { nextRunDate, runDatesFrom } from "@/lib/paymentRuns";
 import { refId } from "@/lib/adapters";
 import type { ApiDeal, ApiExpense } from "@/redux/api/types";
 import { useConfirm } from "@/components/ui/ConfirmProvider";
@@ -93,30 +95,24 @@ function dealShareOf(deal: ApiDeal): number {
   return Math.round(gross * (rate / 100));
 }
 
-function paymentRunDate(year: number, monthIndex: number, runDay: number): string {
-  const runDate = new Date(year, monthIndex, runDay);
-  if (runDate.getDay() === 6) runDate.setDate(runDate.getDate() - 1);
-  if (runDate.getDay() === 0) runDate.setDate(runDate.getDate() - 2);
-  return runDate.toISOString().slice(0, 10);
+/**
+ * The run a talent invoice belongs to. Anything already settled keeps the run it
+ * was paid on; anything outstanding sits on the next configured run — the same
+ * date the backend puts on the Xero bill's reference and due date, so the two
+ * can no longer disagree.
+ */
+function paymentRunOf(deal: ApiDeal, runDates: string[]): string {
+  const reference = deal.remittancePaidAt
+    ? new Date(`${deal.remittancePaidAt}T00:00:00`)
+    : new Date();
+  return nextRunDate(runDates, reference);
 }
 
-function nextPaymentRunDate(reference: Date = new Date()): string {
-  const today = new Date(reference.getFullYear(), reference.getMonth(), reference.getDate());
-  const thisMonthRuns = [14, 28].map((day) =>
-    paymentRunDate(today.getFullYear(), today.getMonth(), day)
-  );
-  const nextRun = thisMonthRuns.find((runDate) => new Date(`${runDate}T00:00:00`) >= today);
-  if (nextRun) return nextRun;
-  const nextMonth = new Date(today.getFullYear(), today.getMonth() + 1, 1);
-  return paymentRunDate(nextMonth.getFullYear(), nextMonth.getMonth(), 14);
-}
-
-function paymentRunOf(deal: ApiDeal): string {
-  const refDate = deal.createdAt ? new Date(deal.createdAt) : new Date();
-  return nextPaymentRunDate(refDate);
-}
-
-function buildInvoices(deals: ApiDeal[], expenses: ApiExpense[]): TalentInvoice[] {
+function buildInvoices(
+  deals: ApiDeal[],
+  expenses: ApiExpense[],
+  runDates: string[],
+): TalentInvoice[] {
   // Only deals the brand has paid are ready for talent remittance.
   const eligible = deals.filter((d) => d.financeStatus === "Paid");
   const groups = new Map<string, ApiDeal[]>();
@@ -131,15 +127,32 @@ function buildInvoices(deals: ApiDeal[], expenses: ApiExpense[]): TalentInvoice[
     const managerId = refId(groupDeals[0].manager);
     const talentName = groupDeals[0].talentName;
 
-    // Talent expenses (100% reimbursed) for this talent — attached to the first line.
-    const talentExpenses = expenses
-      .filter((e) => e.kind === "talent" && e.talentName === talentName)
-      .reduce((t, e) => t + Number(e.amount || 0), 0);
+    const billId = groupDeals.find((d) => d.xeroBillId)?.xeroBillId || "";
+    /*
+     * Talent expenses are reimbursed in full. Only those not already paid on a
+     * different bill count, so a run never pays the same receipt twice; each is
+     * shown against the job it was incurred on, and anything without a job sits
+     * on the first line.
+     */
+    const dealIdSet = new Set(groupDeals.map((d) => d._id));
+    const talentExpenses = expenses.filter(
+      (e) =>
+        e.kind === "talent" &&
+        e.talentName === talentName &&
+        (!e.xeroBillId || e.xeroBillId === billId),
+    );
+    const expensesForDeal = (dealId: string, isFirst: boolean) =>
+      talentExpenses
+        .filter((e) => {
+          const owner = refId(e.deal);
+          return owner === dealId || (isFirst && (!owner || !dealIdSet.has(owner)));
+        })
+        .reduce((t, e) => t + Number(e.amount || 0), 0);
 
     const lines: InvoiceLine[] = groupDeals.map((deal, i) => {
       const grossDeal = sumMonths(deal.monthValues);
       const dealShare = dealShareOf(deal);
-      const expensesOnLine = i === 0 ? talentExpenses : 0;
+      const expensesOnLine = expensesForDeal(deal._id, i === 0);
       const paidEarly = deal.remittanceStatus === "Paid";
       const lineTotal = dealShare + expensesOnLine;
       return {
@@ -173,8 +186,8 @@ function buildInvoices(deals: ApiDeal[], expenses: ApiExpense[]): TalentInvoice[
       managerId,
       talentName,
       talentKey: key,
-      paymentRunDate: paymentRunOf(groupDeals[0]),
-      paidAt: allPaid ? latestPaidAt || paymentRunOf(groupDeals[0]) : "",
+      paymentRunDate: paymentRunOf(groupDeals[0], runDates),
+      paidAt: allPaid ? latestPaidAt || paymentRunOf(groupDeals[0], runDates) : "",
       remittanceSent: anySent,
       dealIds: groupDeals.map((d) => d._id),
       billNumber: groupDeals.find((d) => d.xeroBillNumber)?.xeroBillNumber || "",
@@ -236,6 +249,7 @@ export default function TalentInvoicesView() {
   const { data: talentData = [] } = useGetTalentsQuery();
   const { data: dealData = [], isLoading } = useGetDealsQuery();
   const { data: expenseData = [] } = useGetExpensesQuery();
+  const { data: paymentRuns = [] } = useGetPaymentRunsQuery();
   const [sendRemittance] = useSendDealRemittanceMutation();
   const [markTalentPaid] = useMarkDealTalentPaidMutation();
   const [syncTalentBill, { isLoading: billing }] = useSyncTalentBillMutation();
@@ -250,7 +264,7 @@ export default function TalentInvoicesView() {
   const [endDate, setEndDate] = useState<string>("2026-12-31");
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<string | null>(null);
 
-  const allInvoices = buildInvoices(dealData, expenseData);
+  const allInvoices = buildInvoices(dealData, expenseData, runDatesFrom(paymentRuns));
   const talentRows: TalentRow[] = talentData
     .map((t) => {
       const managerId = refId(t.manager);
@@ -308,8 +322,9 @@ export default function TalentInvoicesView() {
         <>
           A draft bill for <strong>{money(invoice.total)}</strong> payable to{" "}
           <strong>{invoice.talentName}</strong> will be created in the Cowshed Creators Xero
-          organisation, with one line per paid deal. It stays a draft until someone approves it there;
-          paying it in Xero marks this invoice as paid here.
+          organisation, with one line per paid deal plus their reimbursable expenses, referenced and
+          due on the <strong>{displayDate(invoice.paymentRunDate)}</strong> payment run. It stays a
+          draft until someone approves it there; paying it in Xero marks this invoice as paid here.
         </>
       ),
     });
@@ -571,8 +586,8 @@ function TalentInvoiceDetail({
         <div className="invoice-action-row">
           <div className="notice soft-note">
             {invoice.billNumber
-              ? `Bill ${invoice.billNumber} is in Xero${invoice.billState ? ` (${invoice.billState})` : ""}. Paying it there marks this invoice paid here.`
-              : "Send this invoice to Xero as a draft bill, then approve and pay it in Xero."}
+              ? `Bill ${invoice.billNumber} is in Xero${invoice.billState ? ` (${invoice.billState})` : ""}, referenced and due on the ${displayDate(invoice.paymentRunDate)} payment run. Paying it there marks this invoice paid here.`
+              : `Send this invoice to Xero as a draft bill. It is raised against the talent's Xero contact, coded to 310 cost of goods sold, and referenced and due on the ${displayDate(invoice.paymentRunDate)} payment run.`}
           </div>
           {!invoice.paidAt ? (
             <button className="primary" type="button" onClick={() => onSendToXero(invoice)} disabled={billing}>

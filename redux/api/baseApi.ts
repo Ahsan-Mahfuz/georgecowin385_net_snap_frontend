@@ -28,6 +28,7 @@ export const baseApi = createApi({
     "Expense",
     "Settings",
     "Approval",
+    "PaymentRun",
     "ProductionRequest",
     "Me",
   ],

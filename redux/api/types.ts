@@ -135,6 +135,8 @@ export interface ApiTalent {
   xeroContactName?: string;
   xeroBankAccount?: string;
   xeroTaxNumber?: string;
+  /** What happened last time the portal mirrored these details onto Xero. */
+  xeroSyncStatus?: string;
   invoiceName?: string;
   invoiceEmail?: string;
   invoiceAddress?: string;
@@ -200,7 +202,22 @@ export interface ApiExpense {
   amount: number;
   monthIndex: number;
   note?: string;
+  /** The Xero invoice recharging this expense to the brand, once raised. */
+  xeroInvoiceId?: string;
+  xeroInvoiceNumber?: string;
+  xeroStatus?: string;
+  xeroState?: string;
+  /** The talent bill this expense has been reimbursed on. */
+  xeroBillId?: string;
   createdAt?: string;
+}
+
+/** A date on which talent are paid — maintained under Payment Runs. */
+export interface ApiPaymentRun {
+  _id: string;
+  date: string;
+  label?: string;
+  note?: string;
 }
 
 export interface ApiSettings {
@@ -219,6 +236,8 @@ export interface ApiApproval {
   submittedBy: ApiManagerRef | string;
   approver?: ApiManagerRef | string;
   manager?: ApiManagerRef | string;
+  /** The CRM deal this request is for — populated with a summary of the deal. */
+  deal?: { _id: string; talentName?: string; campaignName?: string } | string;
   status: "pending" | "approved" | "rejected";
   rejectionReason: string;
   note: string;

@@ -6,13 +6,15 @@ import { RootState } from "@/redux/store";
 import { money, currencyMoney, sum, usdToGbpRate } from "@/lib/format";
 import { Deal } from "@/lib/mock";
 import { useCreatorsTeam } from "@/hooks/useCreatorsTeam";
-import { useGetDealsQuery } from "@/redux/api/dealApi";
+import { useGetDealsQuery, useInvoiceTalentExpensesMutation } from "@/redux/api/dealApi";
+import { useGetTalentsQuery } from "@/redux/api/talentApi";
 import {
   useGetExpensesQuery,
   useCreateExpenseMutation,
   useDeleteExpenseMutation,
 } from "@/redux/api/expenseApi";
 import { toDeal, refId } from "@/lib/adapters";
+import type { ApiTalent } from "@/redux/api/types";
 import { useConfirm } from "@/components/ui/ConfirmProvider";
 import { apiErrorMessage, useToast } from "@/components/ui/Toast";
 
@@ -41,9 +43,11 @@ export default function TalentExpensesView() {
   const { users } = useCreatorsTeam();
 
   const { data: dealData = [] } = useGetDealsQuery({ year: String(year) });
+  const { data: talentData = [] } = useGetTalentsQuery();
   const { data: expenseData = [] } = useGetExpensesQuery({ kind: "talent" });
   const [createExpense, { isLoading: saving }] = useCreateExpenseMutation();
   const [deleteExpense] = useDeleteExpenseMutation();
+  const [invoiceExpenses, { isLoading: invoicing }] = useInvoiceTalentExpensesMutation();
   const confirm = useConfirm();
   const toast = useToast();
 
@@ -65,9 +69,25 @@ export default function TalentExpensesView() {
   const expenseTotalForDeal = (dealId: string) =>
     expensesForDeal(dealId).reduce((total, e) => total + Number(e.amount || 0), 0);
 
-  // Talent rows derived from the deals in view.
+  /**
+   * The whole roster, not only talent who already have a deal — a talent added
+   * today has no deals yet, and deriving this list from deals alone was why they
+   * never appeared here. Deals still contribute, so a name that predates the
+   * roster record is not lost either.
+   */
   const talentRows = useMemo(() => {
     const map = new Map<string, { key: string; managerId: string; talentName: string; dealCount: number }>();
+    (talentData as ApiTalent[])
+      .filter((t) => !ownManagerId || refId(t.manager) === ownManagerId)
+      .forEach((t) => {
+        const managerId = refId(t.manager);
+        map.set(`${managerId}::${t.name}`, {
+          key: `${managerId}::${t.name}`,
+          managerId,
+          talentName: t.name,
+          dealCount: 0,
+        });
+      });
     deals.forEach((d) => {
       const key = `${d.managerId}::${d.talentName}`;
       const existing = map.get(key);
@@ -75,11 +95,15 @@ export default function TalentExpensesView() {
       else map.set(key, { key, managerId: d.managerId, talentName: d.talentName, dealCount: 1 });
     });
     return [...map.values()].sort((a, b) => a.talentName.localeCompare(b.talentName));
-  }, [deals]);
+  }, [deals, talentData, ownManagerId]);
 
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  // Land on someone with jobs to charge against. The roster is listed in full,
+  // so the first name alphabetically is often a talent with nothing to bill yet.
   const activeKey =
-    selectedKey && talentRows.some((r) => r.key === selectedKey) ? selectedKey : talentRows[0]?.key || null;
+    selectedKey && talentRows.some((r) => r.key === selectedKey)
+      ? selectedKey
+      : talentRows.find((r) => r.dealCount > 0)?.key || talentRows[0]?.key || null;
   const activeRow = talentRows.find((r) => r.key === activeKey) || null;
 
   const activeDeals = activeRow
@@ -112,6 +136,38 @@ export default function TalentExpensesView() {
       setForm({ ...form, amount: "", note: "" });
     } catch (err) {
       toast.error(apiErrorMessage(err, "Could not add that expense."));
+    }
+  };
+
+  /**
+   * Recharge this job's expenses to the brand as their own invoice in Xero,
+   * separate from the deal fee — the fee invoice may already have gone out.
+   */
+  const handleInvoiceExpenses = async (deal: Deal, pending: number, total: number) => {
+    const ok = await confirm({
+      tone: "default",
+      title: "Invoice these expenses to the brand?",
+      confirmLabel: "Create expense invoice",
+      message: (
+        <>
+          A draft invoice for <strong>{money(total)}</strong> covering{" "}
+          <strong>
+            {pending} expense{pending === 1 ? "" : "s"}
+          </strong>{" "}
+          will be created in Xero against{" "}
+          <strong>{deal.company || deal.companyName || "the brand"}</strong>, carrying the same PO and
+          payment terms as the deal. It is separate from the deal fee invoice.
+        </>
+      ),
+    });
+    if (!ok) return;
+    try {
+      const result = await invoiceExpenses(deal.id).unwrap();
+      toast.success(
+        `Expense invoice ${result.invoiceNumber || "created"} raised in Xero for ${money(result.total)}.`,
+      );
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Could not raise that expense invoice."));
     }
   };
 
@@ -207,6 +263,9 @@ export default function TalentExpensesView() {
                 activeDeals.map((deal) => {
                   const jobExpenses = expensesForDeal(deal.id);
                   const expenseTotal = expenseTotalForDeal(deal.id);
+                  const pending = jobExpenses.filter((e) => !e.xeroInvoiceId);
+                  const pendingTotal = pending.reduce((t, e) => t + Number(e.amount || 0), 0);
+                  const raised = jobExpenses.find((e) => e.xeroInvoiceNumber || e.xeroInvoiceId);
                   return (
                     <article className="deal" key={deal.id}>
                       <div className="deal-line">
@@ -230,6 +289,34 @@ export default function TalentExpensesView() {
                         <strong>{money(dealGbpAmount(deal) + expenseTotal)}</strong>
                       </div>
 
+                      {/* Expenses go to the brand on their own invoice, so they can
+                          be sent as soon as the receipts are in. */}
+                      <div className="invoice-action-row">
+                        <div className="notice soft-note">
+                          {raised
+                            ? `Expense invoice ${raised.xeroInvoiceNumber || raised.xeroInvoiceId} is in Xero${
+                                raised.xeroState ? ` (${raised.xeroState})` : ""
+                              }.${pending.length ? ` ${pending.length} newer expense(s) not on it yet.` : ""}`
+                            : jobExpenses.length
+                              ? "These expenses have not been recharged to the brand yet."
+                              : "Add an expense to recharge it to the brand."}
+                        </div>
+                        {pending.length ? (
+                          <button
+                            className="primary"
+                            type="button"
+                            disabled={invoicing}
+                            onClick={() => handleInvoiceExpenses(deal, pending.length, pendingTotal)}
+                          >
+                            {invoicing
+                              ? "Creating…"
+                              : raised
+                                ? `Invoice ${pending.length} new expense(s)`
+                                : "Invoice expenses to brand"}
+                          </button>
+                        ) : null}
+                      </div>
+
                       {jobExpenses.length ? (
                         <div className="table-wrap">
                           <table>
@@ -238,6 +325,8 @@ export default function TalentExpensesView() {
                                 <th>Expense</th>
                                 <th>Note</th>
                                 <th>Added</th>
+                                <th>Brand invoice</th>
+                                <th>On talent bill</th>
                                 <th className="numeric">Amount</th>
                                 <th />
                               </tr>
@@ -248,11 +337,35 @@ export default function TalentExpensesView() {
                                   <td>{e.label}</td>
                                   <td>{e.note || "-"}</td>
                                   <td>{displayDate(String(e.createdAt || ""))}</td>
+                                  <td>
+                                    {e.xeroInvoiceNumber || e.xeroInvoiceId ? (
+                                      <span className="pill confirmed">
+                                        {e.xeroInvoiceNumber || "Raised"}
+                                      </span>
+                                    ) : (
+                                      <span className="pill pipeline">Not raised</span>
+                                    )}
+                                  </td>
+                                  <td>
+                                    {e.xeroBillId ? (
+                                      <span className="pill confirmed">On bill</span>
+                                    ) : (
+                                      <span className="pill">Next run</span>
+                                    )}
+                                  </td>
                                   <td className="numeric">{money(e.amount)}</td>
                                   <td>
+                                    {/* Removing an expense already on a Xero document
+                                        would leave the portal and Xero disagreeing. */}
                                     <button
                                       className="secondary danger-button small"
                                       type="button"
+                                      disabled={Boolean(e.xeroInvoiceId || e.xeroBillId)}
+                                      title={
+                                        e.xeroInvoiceId || e.xeroBillId
+                                          ? "Already on a Xero document — void it in Xero first"
+                                          : undefined
+                                      }
                                       onClick={() => handleRemove(e)}
                                     >
                                       Remove
@@ -350,8 +463,10 @@ export default function TalentExpensesView() {
           <section className="section">
             <div className="section-body">
               <div className="notice">
-                Talent expenses sit on top of the deal fee and are recharged on the client invoice.
-                They do not appear in company overheads — those live under Expenses.
+                Talent expenses sit on top of the deal fee. They go to the brand as their own Xero
+                invoice, and are reimbursed to the talent in full on their next payment run — so they
+                appear on the talent report, the Xero bill and the remittance. They do not appear in
+                company overheads; those live under Expenses.
               </div>
             </div>
           </section>

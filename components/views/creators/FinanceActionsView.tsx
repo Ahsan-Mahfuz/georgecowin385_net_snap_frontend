@@ -31,6 +31,8 @@ export default function FinanceActionsView() {
   const confirm = useConfirm();
 
   const [openDealId, setOpenDealId] = useState<string | null>(null);
+  // Finished work, kept collapsed so it does not push the open actions down.
+  const [showPaidToTalent, setShowPaidToTalent] = useState(false);
 
   const managerName = (id: string) => users.find((u) => u.id === id)?.name || "Unassigned";
   const deals = dealData.map(toDeal);
@@ -45,6 +47,10 @@ export default function FinanceActionsView() {
     (d) => d.xeroInvoiceId && ["AUTHORISED", "SUBMITTED"].includes(d.xeroState || "") && d.financeStatus !== "Paid",
   );
   const talentToPay = deals.filter((d) => d.financeStatus === "Paid" && d.remittanceStatus !== "Paid");
+  // Settled with the talent — nothing left to do, but Finance still wants the record.
+  const paidToTalent = deals
+    .filter((d) => d.remittanceStatus === "Paid")
+    .sort((a, b) => (b.remittancePaidAt || "").localeCompare(a.remittancePaidAt || ""));
 
   const total = (list: Deal[]) => list.reduce((t, d) => t + dealTotal(d), 0);
 
@@ -243,6 +249,45 @@ export default function FinanceActionsView() {
           ),
         "No talent payments outstanding.",
       )}
+
+      {/* Everything already settled with the talent. Collapsed by default — it
+          only grows, and none of it needs actioning. */}
+      <section className="section soft-section">
+        <div className="section-head">
+          <button
+            className="collapse-head"
+            type="button"
+            onClick={() => setShowPaidToTalent((open) => !open)}
+            aria-expanded={showPaidToTalent}
+          >
+            <h2>Paid to talent</h2>
+            <span className="section-actions">
+              <span className="pill confirmed">{paidToTalent.length} settled</span>
+              <span className="pill">{money(total(paidToTalent))}</span>
+              <span className="collapse-hint">{showPaidToTalent ? "Hide" : "Show"}</span>
+            </span>
+          </button>
+        </div>
+        {showPaidToTalent ? (
+          <div className="section-body manager-list">
+            {paidToTalent.length ? (
+              paidToTalent.map((deal) =>
+                card(
+                  deal,
+                  <span className="pill confirmed">
+                    {deal.xeroBillNumber ? `Bill ${deal.xeroBillNumber}` : "Paid"}
+                  </span>,
+                  <span className="pill confirmed">
+                    {deal.remittancePaidAt ? `Paid ${deal.remittancePaidAt}` : "Paid"}
+                  </span>,
+                ),
+              )
+            ) : (
+              <div className="notice">Nothing has been paid out to talent yet.</div>
+            )}
+          </div>
+        ) : null}
+      </section>
 
       {openDeal ? (
         <DealDetailModal

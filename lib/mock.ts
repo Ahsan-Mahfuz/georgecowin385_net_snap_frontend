@@ -56,6 +56,8 @@ export interface Deal {
   financeStatus?: string;
   invoiceDate?: string;
   remittanceStatus?: string;
+  remittanceSentAt?: string;
+  remittancePaidAt?: string;
   xeroBillId?: string;
   xeroBillNumber?: string;
   xeroBillState?: string;
