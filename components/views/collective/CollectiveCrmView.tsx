@@ -58,6 +58,8 @@ const emptyForm = {
   notes: "",
   xeroContactId: "",
   monthValues: new Array(12).fill("") as string[],
+  // Per-month payment terms; blank means "use the deal's default terms".
+  monthTerms: new Array(12).fill("") as string[],
 };
 
 type DealForm = typeof emptyForm;
@@ -195,6 +197,10 @@ export default function CollectiveCrmView() {
         const value = Number((deal.monthValues || [])[index] || 0);
         return value ? String(value) : "";
       }),
+      monthTerms: months.map(
+        (_, index) =>
+          (deal.installments || []).find((item) => item.monthIndex === index)?.paymentTerm || "",
+      ),
     });
     setEditingId(deal.id);
     setPanelOpen(true);
@@ -242,6 +248,15 @@ export default function CollectiveCrmView() {
       paymentTerm: form.paymentTerm,
       customPaymentDays: Number(form.customPaymentDays) || 0,
       monthValues,
+      // Only the months that actually carry money need terms.
+      installmentTerms: monthValues
+        .map((value, monthIndex) => ({ value, monthIndex }))
+        .filter((entry) => entry.value > 0)
+        .map(({ monthIndex }) => ({
+          monthIndex,
+          paymentTerm: form.monthTerms[monthIndex] || form.paymentTerm,
+          customPaymentDays: Number(form.customPaymentDays) || 0,
+        })),
       notes: form.notes.trim(),
       // Empty means "new client" — Xero creates the contact from the details above.
       xeroContactId: form.xeroContactId,
@@ -679,10 +694,11 @@ export default function CollectiveCrmView() {
                           </span>
                           <span>{deal.dealName}</span>
                           <small>
+                            {/* This payment's own terms, not the deal's default. */}
                             {installmentDueLabel(
                               installment.monthIndex,
-                              deal.paymentTerm,
-                              deal.customPaymentDays,
+                              installment.paymentTerm || deal.paymentTerm,
+                              installment.customPaymentDays ?? deal.customPaymentDays,
                             )}
                           </small>
                           {installment.xeroInvoiceNumber ? (
@@ -952,24 +968,54 @@ export default function CollectiveCrmView() {
                 <div className="field wide">
                   <label>Payment schedule</label>
                   <div className="collective-payment-grid">
-                    {months.map((month, index) => (
-                      <label key={month}>
-                        <span>{month}</span>
-                        <input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          placeholder="0"
-                          value={form.monthValues[index]}
-                          onChange={(event) => {
-                            const next = [...form.monthValues];
-                            next[index] = event.target.value;
-                            setForm({ ...form, monthValues: next });
-                          }}
-                        />
-                      </label>
-                    ))}
+                    {months.map((month, index) => {
+                      const hasAmount = Number(form.monthValues[index]) > 0;
+                      return (
+                        <label key={month}>
+                          <span>{month}</span>
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            placeholder="0"
+                            value={form.monthValues[index]}
+                            onChange={(event) => {
+                              const next = [...form.monthValues];
+                              next[index] = event.target.value;
+                              setForm({ ...form, monthValues: next });
+                            }}
+                          />
+                          {/*
+                            Each month invoices separately, so each one carries its
+                            own terms — August upfront and November on 30 days is a
+                            normal schedule, not an exception.
+                          */}
+                          {hasAmount ? (
+                            <select
+                              className="compact-select month-term"
+                              aria-label={`${month} payment terms`}
+                              value={form.monthTerms[index] || form.paymentTerm}
+                              onChange={(event) => {
+                                const next = [...form.monthTerms];
+                                next[index] = event.target.value;
+                                setForm({ ...form, monthTerms: next });
+                              }}
+                            >
+                              {paymentTerms.map((term) => (
+                                <option key={term.value} value={term.value}>
+                                  {term.label}
+                                </option>
+                              ))}
+                            </select>
+                          ) : null}
+                        </label>
+                      );
+                    })}
                   </div>
+                  <small className="field-hint">
+                    Set terms per month where they differ — anything left alone follows the deal&rsquo;s
+                    default terms above.
+                  </small>
                   <small className={`allocation-note is-${allocation.tone}`} data-allocation={allocation.tone}>
                     {allocation.message}
                   </small>

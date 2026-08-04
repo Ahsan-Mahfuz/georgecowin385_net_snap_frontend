@@ -468,6 +468,16 @@ export default function TalentView() {
   const [newTalentName, setNewTalentName] = useState("");
   const [newTalentEmail, setNewTalentEmail] = useState("");
   const [newTalentManager, setNewTalentManager] = useState("");
+  // Bank details are collected up front: they are what the Xero contact is
+  // created with, so a talent added without them cannot be paid.
+  const [newBank, setNewBank] = useState({
+    bankName: "",
+    accountName: "",
+    sortCode: "",
+    accountNumber: "",
+    vatNumber: "",
+    invoiceAddress: "",
+  });
 
   // Publish live data to the module-level helpers before rendering children.
   liveUsers = users;
@@ -512,15 +522,39 @@ export default function TalentView() {
         t.name.trim().toLowerCase() === name.toLowerCase(),
     );
     if (clash) return toast.error(`${name} is already on this manager's roster.`);
+
+    // Checked here as well as on the server so the message lands next to the
+    // field rather than as a rejected save.
+    const sortCode = newBank.sortCode.trim();
+    const accountNumber = newBank.accountNumber.trim();
+    if (!newBank.bankName.trim()) return toast.error("Enter the bank name — it goes on their Xero contact.");
+    if (!newBank.accountName.trim()) return toast.error("Enter the name on the account.");
+    if (!/^\d{2}-?\d{2}-?\d{2}$/.test(sortCode)) return toast.error("Sort code must be six digits, e.g. 04-00-04.");
+    if (!/^\d{8}$/.test(accountNumber)) return toast.error("Account number must be eight digits.");
+
     try {
-      await createTalent({
+      const created = await createTalent({
         name,
         email: newTalentEmail.trim() || undefined,
         manager: addTalentDefaultManager,
+        invoiceName: name,
+        invoiceEmail: newTalentEmail.trim() || undefined,
+        invoiceAddress: newBank.invoiceAddress.trim() || undefined,
+        bankName: newBank.bankName.trim(),
+        accountName: newBank.accountName.trim(),
+        sortCode,
+        accountNumber,
+        vatNumber: newBank.vatNumber.trim() || undefined,
       }).unwrap();
-      toast.success(`${name} added to the roster.`);
+      // The Xero push happens on save; say what actually reached Xero.
+      toast.success(
+        created?.xeroSyncStatus
+          ? `${name} added. ${created.xeroSyncStatus}`
+          : `${name} added to the roster.`,
+      );
       setNewTalentName("");
       setNewTalentEmail("");
+      setNewBank({ bankName: "", accountName: "", sortCode: "", accountNumber: "", vatNumber: "", invoiceAddress: "" });
     } catch (err) {
       toast.error(apiErrorMessage(err, "Could not add talent."));
     }
@@ -826,13 +860,75 @@ export default function TalentView() {
                     onChange={(event) => setNewTalentEmail(event.target.value)}
                   />
                 </div>
+                <div className="field">
+                  <label htmlFor="newTalentBankName">Bank name</label>
+                  <input
+                    id="newTalentBankName"
+                    required
+                    placeholder="Monzo"
+                    value={newBank.bankName}
+                    onChange={(e) => setNewBank({ ...newBank, bankName: e.target.value })}
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="newTalentAccountName">Name on account</label>
+                  <input
+                    id="newTalentAccountName"
+                    required
+                    placeholder={newTalentName || "Account holder"}
+                    value={newBank.accountName}
+                    onChange={(e) => setNewBank({ ...newBank, accountName: e.target.value })}
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="newTalentSortCode">Sort code</label>
+                  <input
+                    id="newTalentSortCode"
+                    required
+                    inputMode="numeric"
+                    placeholder="04-00-04"
+                    value={newBank.sortCode}
+                    onChange={(e) => setNewBank({ ...newBank, sortCode: e.target.value })}
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="newTalentAccountNumber">Account number</label>
+                  <input
+                    id="newTalentAccountNumber"
+                    required
+                    inputMode="numeric"
+                    placeholder="12345678"
+                    value={newBank.accountNumber}
+                    onChange={(e) => setNewBank({ ...newBank, accountNumber: e.target.value })}
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="newTalentVatNumber">VAT number</label>
+                  <input
+                    id="newTalentVatNumber"
+                    placeholder="Optional — copied to Xero"
+                    value={newBank.vatNumber}
+                    onChange={(e) => setNewBank({ ...newBank, vatNumber: e.target.value })}
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="newTalentInvoiceAddress">Invoice address</label>
+                  <input
+                    id="newTalentInvoiceAddress"
+                    placeholder="Optional"
+                    value={newBank.invoiceAddress}
+                    onChange={(e) => setNewBank({ ...newBank, invoiceAddress: e.target.value })}
+                  />
+                </div>
                 <button className="primary" type="submit" disabled={creating || !managers.length}>
                   {creating ? "Adding…" : "Add talent"}
                 </button>
               </form>
               <div className="notice soft-note">
-                Transferring talent moves them between manager rosters for future dropdowns. Existing submitted deal
-                revenue remains with the original submitting manager for commission.
+                Bank details are required: they are sent straight to Xero as the talent&rsquo;s supplier
+                contact, so their first bill is payable without anyone retyping them. Transferring talent
+                moves them between manager rosters for future dropdowns — revenue already submitted stays
+                with the original manager for commission.
               </div>
             </div>
           </section>

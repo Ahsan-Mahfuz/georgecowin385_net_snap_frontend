@@ -70,6 +70,8 @@ interface TalentInvoice {
   managerId: string;
   talentName: string;
   talentKey: string;
+  /** The month this remittance covers — one invoice per talent per month. */
+  monthIndex: number;
   paymentRunDate: string;
   paidAt: string; // set when every line's remittance is Paid
   remittanceSent: boolean;
@@ -86,6 +88,17 @@ interface TalentInvoice {
     invoiceName?: string;
     invoiceEmail?: string;
   };
+}
+
+/**
+ * Which month a deal's money belongs to — the first month carrying a value,
+ * falling back to the month it was signed in. A remittance covers one month, so
+ * this is what decides which run a deal lands on.
+ */
+function dealMonthIndex(deal: ApiDeal): number {
+  const withValue = (deal.monthValues || []).findIndex((v) => Number(v || 0) > 0);
+  if (withValue >= 0) return withValue;
+  return Math.min(11, Math.max(0, Number(deal.signedMonthIndex || 0)));
 }
 
 // Talent gets costRate% of the gross deal value (default 80%).
@@ -115,9 +128,14 @@ function buildInvoices(
 ): TalentInvoice[] {
   // Only deals the brand has paid are ready for talent remittance.
   const eligible = deals.filter((d) => d.financeStatus === "Paid");
+  /*
+   * One remittance per talent **per month**. Grouping on the talent alone swept
+   * every paid deal they had ever done onto a single invoice, so August's run
+   * showed October's money — which is what the client saw.
+   */
   const groups = new Map<string, ApiDeal[]>();
   for (const deal of eligible) {
-    const key = talentKey(refId(deal.manager), deal.talentName);
+    const key = `${talentKey(refId(deal.manager), deal.talentName)}::${dealMonthIndex(deal)}`;
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key)!.push(deal);
   }
@@ -126,6 +144,7 @@ function buildInvoices(
   for (const [key, groupDeals] of groups.entries()) {
     const managerId = refId(groupDeals[0].manager);
     const talentName = groupDeals[0].talentName;
+    const monthIndex = dealMonthIndex(groupDeals[0]);
 
     const billId = groupDeals.find((d) => d.xeroBillId)?.xeroBillId || "";
     /*
@@ -139,6 +158,8 @@ function buildInvoices(
       (e) =>
         e.kind === "talent" &&
         e.talentName === talentName &&
+        // …and belonging to this run's month, like the deals themselves.
+        Number(e.monthIndex || 0) === monthIndex &&
         (!e.xeroBillId || e.xeroBillId === billId),
     );
     const expensesForDeal = (dealId: string, isFirst: boolean) =>
@@ -185,7 +206,9 @@ function buildInvoices(
       id: `talent-invoice-${key}`,
       managerId,
       talentName,
-      talentKey: key,
+      // The talent-only key, so the Talent filter still matches every month.
+      talentKey: talentKey(managerId, talentName),
+      monthIndex,
       paymentRunDate: paymentRunOf(groupDeals[0], runDates),
       paidAt: allPaid ? latestPaidAt || paymentRunOf(groupDeals[0], runDates) : "",
       remittanceSent: anySent,
@@ -277,12 +300,17 @@ export default function TalentInvoicesView() {
       ? { startDate, endDate, label: `${displayDate(startDate)} - ${displayDate(endDate)}` }
       : monthDateRange(monthIndex);
 
-  const invoices = allInvoices.filter(
-    (invoice) =>
-      (selectedTalentKey === "all" || invoice.talentKey === selectedTalentKey) &&
-      invoice.paymentRunDate >= range.startDate &&
-      invoice.paymentRunDate <= range.endDate,
-  );
+  /*
+   * By month, the filter is the month the money belongs to — not the date the
+   * run happens to fall on. Filtering on the run date is what made August show
+   * deals from every other month: they all shared the next upcoming run.
+   * Custom dates still filter on the run date, which is what a date range means.
+   */
+  const invoices = allInvoices.filter((invoice) => {
+    if (selectedTalentKey !== "all" && invoice.talentKey !== selectedTalentKey) return false;
+    if (mode === "month") return invoice.monthIndex === monthIndex;
+    return invoice.paymentRunDate >= range.startDate && invoice.paymentRunDate <= range.endDate;
+  });
 
   const selectedInvoice =
     invoices.find((invoice) => invoice.id === selectedInvoiceId) || invoices[0] || null;
@@ -438,6 +466,7 @@ export default function TalentInvoicesView() {
               <thead>
                 <tr>
                   <th>Talent</th>
+                  <th>Month</th>
                   <th>Manager</th>
                   <th>Payment run</th>
                   <th>Status</th>
@@ -450,7 +479,7 @@ export default function TalentInvoicesView() {
                   groups.map((group) => (
                     <Fragment key={group.paymentRunDate}>
                       <tr className="payment-run-row">
-                        <td colSpan={6}>
+                        <td colSpan={7}>
                           <strong>{displayDate(group.paymentRunDate)} payment run</strong>
                           <span>
                             {group.invoices.length} invoices · {money(group.total)} payable now ·{" "}
@@ -472,6 +501,7 @@ export default function TalentInvoicesView() {
                               {invoice.talentName}
                             </button>
                           </td>
+                          <td>{months[invoice.monthIndex] || "-"}</td>
                           <td>{managerName(invoice.managerId)}</td>
                           <td>{displayDate(invoice.paymentRunDate)}</td>
                           <td>
@@ -485,7 +515,7 @@ export default function TalentInvoicesView() {
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={6}>
+                    <td colSpan={7}>
                       {isLoading ? "Loading…" : "No talent invoices in this period."}
                     </td>
                   </tr>
