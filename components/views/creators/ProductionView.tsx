@@ -139,6 +139,18 @@ export default function ProductionView() {
     (r) => (r.status === "scheduled" || r.status === "completed") && r.shootDate,
   );
 
+  /*
+   * A rejection is the requesting manager's news. They see it (and get it by
+   * email); admin and operations see all of them so they can chase; the rest of
+   * the team is not nagged about a shoot that was never theirs.
+   */
+  const seesEveryRejection = ["admin", "operations"].includes(user?.role || "");
+  const rejectionNotices = requests.filter((r) => {
+    if (r.status !== "rejected" || r.rejectionDismissedAt) return false;
+    if (seesEveryRejection) return true;
+    return refId(r.submittedBy) === user?.id || refId(r.manager) === user?.id;
+  });
+
   return (
     <>
       <div className="topbar">
@@ -346,10 +358,14 @@ export default function ProductionView() {
             </div>
           ) : null}
 
-          {/* Rejection notices stay until they are read and cleared away. */}
-          {requests
-            .filter((r) => r.status === "rejected" && !r.rejectionDismissedAt)
-            .map((r) => (
+          {/*
+            Rejection notices stay until they are read and cleared away, and they
+            belong to whoever asked for the shoot — the client wanted the
+            requesting manager alerted, not the whole team. Admin and operations
+            still see everything so they can chase.
+            The same rejection is emailed to them; see notifyProductionRejected.
+          */}
+          {rejectionNotices.map((r) => (
               <div
                 key={r._id}
                 className="notice rejection-notice"

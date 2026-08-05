@@ -69,6 +69,8 @@ export interface ApiDeal {
   /** Raw Xero status: DRAFT | SUBMITTED | AUTHORISED | PAID | VOIDED. */
   xeroState?: string;
   xeroDueDate?: string;
+  /** Days past due with money still owing, read back from Xero. 0 when fine. */
+  xeroOverdueDays?: number;
   invoiceDate?: string;
   financeStatus: string;
   remittanceStatus?: string;
@@ -98,6 +100,8 @@ export interface ApiXeroSync {
   invoiced: string[];
   paid: string[];
   billsPaid?: string[];
+  /** Invoices Xero reports as past their due date with money still owing. */
+  overdue?: string[];
   errors: string[];
 }
 
@@ -162,6 +166,10 @@ export interface ApiBrand {
   billingAddress?: string;
   paymentTerm?: string;
   customPaymentDays?: number;
+  /** The contact this brand is mirrored to in the Creators Xero organisation. */
+  xeroContactId?: string;
+  /** What happened last time these details were pushed to Xero. */
+  xeroSyncStatus?: string;
   updatedAt?: string;
 }
 
@@ -228,7 +236,47 @@ export interface ApiSettings {
   targets: number[];
   managerSalaries: Record<string, number>;
   commissionRates: Record<string, number>;
+  /** Sales commission %, keyed newBusiness / returningBusiness / other. */
+  collectiveCommissionRates: Record<string, number>;
   productionRates: Record<string, number>;
+}
+
+/** One salesperson's line on the Collective commission sheet. */
+export interface ApiCollectiveCommissionRow {
+  ownerId: string;
+  ownerName: string;
+  newBusiness: number;
+  returningBusiness: number;
+  other: number;
+  revenue: number;
+  commission: number;
+  monthly: number[];
+  deals: {
+    id: string;
+    company: string;
+    dealName: string;
+    businessType: string;
+    stage: string;
+    amount: number;
+    rate: number;
+    commission: number;
+  }[];
+}
+
+export interface ApiCollectiveCommission {
+  rates: Record<string, number>;
+  rows: ApiCollectiveCommissionRow[];
+}
+
+/** What a reminder run did. */
+export interface ApiReminderSummary {
+  owners: number;
+  payments: number;
+  sent: string[];
+  /** False when SMTP is not set up — a very different answer to "nothing due". */
+  mailConfigured: boolean;
+  /** Payments that had reached their due date, whether or not mail went out. */
+  due: number;
 }
 
 export interface ApiApproval {
@@ -248,15 +296,24 @@ export interface ApiApproval {
   createdAt: string;
 }
 
+export type ApiBusinessType = "New Business" | "Returning Business" | "Other";
+
 export interface ApiInstallment {
   monthIndex: number;
   amount: number;
+  /** Share of the deal this payment carries, when entered as a percentage. */
+  percent?: number;
   stage: string;
   paymentTerm?: string;
   customPaymentDays?: number;
+  /** Exact due date picked on the schedule calendar (yyyy-mm-dd). */
+  dueDate?: string;
+  reminderSentAt?: string;
   xeroInvoiceId: string;
   xeroInvoiceNumber: string;
   xeroStatus: string;
+  /** Days past due with money still owing, read back from Xero. */
+  overdueDays?: number;
   invoiceDate: string;
 }
 
@@ -274,12 +331,20 @@ export interface ApiCollectiveDeal {
   noContract?: boolean;
   stage: string;
   amount: number;
+  /** How the deal was won — sets the commission rate on the sales sheet. */
+  businessType?: ApiBusinessType;
   paymentTerm: string;
   customPaymentDays: number;
   monthValues: number[];
   installments?: ApiInstallment[];
-  /** Per-month payment terms sent when saving the schedule (write-only). */
-  installmentTerms?: { monthIndex: number; paymentTerm?: string; customPaymentDays?: number }[];
+  /** Per-month schedule detail sent when saving the schedule (write-only). */
+  installmentTerms?: {
+    monthIndex: number;
+    paymentTerm?: string;
+    customPaymentDays?: number;
+    percent?: number;
+    dueDate?: string;
+  }[];
   xeroContactId?: string;
   xeroContactName?: string;
   xeroOrg: string;

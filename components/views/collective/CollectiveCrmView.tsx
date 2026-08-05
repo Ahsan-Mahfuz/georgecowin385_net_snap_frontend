@@ -5,20 +5,26 @@ import { useSelector } from "react-redux";
 import { RootState } from "@/redux/store";
 import { months, money, sum, stageClass } from "@/lib/format";
 import {
+  businessTypes,
   collectiveStages,
   collectiveLiveStages,
   collectivePipelineStages,
   installmentStages,
   paymentTerms,
+  type BusinessType,
   type CollectiveDeal,
   type Profile,
 } from "@/lib/mock";
 import {
+  amountFromPercent,
   collectiveDealTotal,
   collectivePaymentLabel,
   collectiveStageBlockReason,
   installmentBlockReason,
+  installmentDueDate,
   installmentDueLabel,
+  overdueLabel,
+  percentFromAmount,
   scheduleAllocation,
   scopedCollectiveDeals,
   type CollectiveScope,
@@ -32,6 +38,7 @@ import {
   useCreateCollectiveInvoiceMutation,
   useUpdateCollectiveInstallmentMutation,
   useCreateCollectiveInstallmentInvoiceMutation,
+  useSendCollectiveRemindersMutation,
 } from "@/redux/api/collectiveDealApi";
 import { useSyncXeroMutation } from "@/redux/api/dealApi";
 import { useGetXeroContactsQuery } from "@/redux/api/dealApi";
@@ -53,6 +60,7 @@ const emptyForm = {
   noContract: false,
   stage: "Conversation",
   amount: "",
+  businessType: "New Business" as BusinessType,
   paymentTerm: "30",
   customPaymentDays: "",
   notes: "",
@@ -60,9 +68,24 @@ const emptyForm = {
   monthValues: new Array(12).fill("") as string[],
   // Per-month payment terms; blank means "use the deal's default terms".
   monthTerms: new Array(12).fill("") as string[],
+  // Percentage of the deal each month carries. Typing one fills the amount in.
+  monthPercents: new Array(12).fill("") as string[],
+  // Exact date each payment is due; blank falls back to the terms.
+  monthDueDates: new Array(12).fill("") as string[],
 };
 
 type DealForm = typeof emptyForm;
+
+/**
+ * How many contacts the picker renders at once.
+ *
+ * The datalist used to hold every contact in the Xero organisation, and the
+ * browser rebuilt all of them on every keystroke — which is what "the dropdown
+ * is slow, it doesn't pull up the Xero contact details smoothly" was. Matching
+ * as they type and showing the closest handful keeps it instant however many
+ * contacts the org has.
+ */
+const CONTACT_SUGGESTIONS = 40;
 
 /** Columns shown for each scope of the board. */
 const columnsForScope = (scope: CollectiveScope): string[] => {
@@ -134,11 +157,28 @@ export default function CollectiveCrmView() {
   const allocation = scheduleAllocation(Number(form.amount) || 0, form.monthValues.map(Number));
 
   /**
+   * Contact lookup by name, built once instead of scanning the whole list on
+   * every keystroke. Names are normalised because Xero's own matching is exact
+   * and case-sensitive, so "Acme Ltd" and "ACME  Ltd" were treated as two
+   * different brands and neither of them autofilled.
+   */
+  const contactsByName = useMemo(() => {
+    const index = new Map<string, (typeof xeroContacts)[number]>();
+    xeroContacts.forEach((contact) => {
+      index.set(contact.name.trim().toLowerCase().replace(/\s+/g, " "), contact);
+    });
+    return index;
+  }, [xeroContacts]);
+
+  const findContact = (name: string) =>
+    contactsByName.get(name.trim().toLowerCase().replace(/\s+/g, " "));
+
+  /**
    * Picking a contact that already exists in Xero stops a client becoming a new
    * contact on every deal, and brings their billing email and address across.
    */
   const applyContact = (name: string) => {
-    const match = xeroContacts.find((c) => c.name.toLowerCase() === name.trim().toLowerCase());
+    const match = findContact(name);
     setForm((current) => ({
       ...current,
       company: name,
@@ -147,15 +187,27 @@ export default function CollectiveCrmView() {
       // previous client's email would quietly invoice the wrong people.
       emailContact: match ? match.email : current.emailContact,
       companyAddress: match ? match.address : current.companyAddress,
+      contactName: match?.name && !current.contactName ? "" : current.contactName,
     }));
   };
 
+  // Only the contacts that match what has been typed so far, capped so the list
+  // stays instant on an organisation with thousands of them.
+  const contactSuggestions = useMemo(() => {
+    const typed = form.company.trim().toLowerCase();
+    const pool = typed
+      ? xeroContacts.filter((contact) => contact.name.toLowerCase().includes(typed))
+      : xeroContacts;
+    return pool.slice(0, CONTACT_SUGGESTIONS);
+  }, [xeroContacts, form.company]);
+
   // Says plainly what will happen, including when Xero holds no details.
   const contactHint = (() => {
-    if (!xeroContacts.length) return "";
-    const match = xeroContacts.find(
-      (c) => c.contactId === form.xeroContactId || c.name.toLowerCase() === form.company.trim().toLowerCase(),
-    );
+    if (!xeroContacts.length) {
+      return "Xero contacts are not available right now — type the client name and we'll create the contact when the invoice is raised.";
+    }
+    const match =
+      xeroContacts.find((c) => c.contactId === form.xeroContactId) || findContact(form.company);
     if (match) {
       const missing = [!match.email && "email", !match.address && "address"].filter(Boolean);
       return missing.length
@@ -165,7 +217,7 @@ export default function CollectiveCrmView() {
     if (form.company.trim()) {
       return "New contact. It will be created in Xero with the email address and company address below.";
     }
-    return `${xeroContacts.length} contacts available from Xero.`;
+    return `${xeroContacts.length} contacts available from Xero. Start typing to narrow the list.`;
   })();
 
   const openAddPanel = () => {
@@ -189,6 +241,7 @@ export default function CollectiveCrmView() {
       noContract: Boolean(deal.noContract),
       stage: deal.stage || "Conversation",
       amount: String(collectiveDealTotal(deal) || ""),
+      businessType: deal.businessType || "New Business",
       paymentTerm: deal.paymentTerm || "30",
       customPaymentDays: String(deal.customPaymentDays || ""),
       notes: deal.notes || "",
@@ -201,6 +254,16 @@ export default function CollectiveCrmView() {
         (_, index) =>
           (deal.installments || []).find((item) => item.monthIndex === index)?.paymentTerm || "",
       ),
+      monthPercents: months.map((_, index) => {
+        const percent = Number(
+          (deal.installments || []).find((item) => item.monthIndex === index)?.percent || 0,
+        );
+        return percent ? String(percent) : "";
+      }),
+      monthDueDates: months.map(
+        (_, index) =>
+          (deal.installments || []).find((item) => item.monthIndex === index)?.dueDate || "",
+      ),
     });
     setEditingId(deal.id);
     setPanelOpen(true);
@@ -209,6 +272,66 @@ export default function CollectiveCrmView() {
   const closePanel = () => {
     setPanelOpen(false);
     setEditingId(null);
+  };
+
+  /**
+   * The schedule can be driven from either end: type £20,000 into August and the
+   * percentage follows, or type 40% and the amount is worked out from the deal
+   * value. Whichever was typed last is the one that wins.
+   */
+  const setMonthAmount = (index: number, value: string) => {
+    setForm((current) => {
+      const monthValues = [...current.monthValues];
+      const monthPercents = [...current.monthPercents];
+      monthValues[index] = value;
+      const dealAmount = Number(current.amount) || 0;
+      monthPercents[index] =
+        dealAmount && Number(value)
+          ? String(percentFromAmount(dealAmount, Number(value)))
+          : "";
+      return { ...current, monthValues, monthPercents };
+    });
+  };
+
+  const setMonthPercent = (index: number, value: string) => {
+    setForm((current) => {
+      const monthValues = [...current.monthValues];
+      const monthPercents = [...current.monthPercents];
+      monthPercents[index] = value;
+      const dealAmount = Number(current.amount) || 0;
+      // With no deal amount yet there is nothing to take a percentage of; the
+      // figure is kept so it fills in as soon as the amount is entered.
+      if (dealAmount && value !== "") {
+        monthValues[index] = String(amountFromPercent(dealAmount, Number(value) || 0));
+      } else if (value === "") {
+        monthValues[index] = "";
+      }
+      return { ...current, monthValues, monthPercents };
+    });
+  };
+
+  const setMonthDueDate = (index: number, value: string) => {
+    setForm((current) => {
+      const monthDueDates = [...current.monthDueDates];
+      monthDueDates[index] = value;
+      return { ...current, monthDueDates };
+    });
+  };
+
+  /**
+   * Changing the deal amount re-does every month that was entered as a
+   * percentage, so a schedule set as 50/50 stays 50/50 when the deal grows.
+   */
+  const setDealAmount = (value: string) => {
+    setForm((current) => {
+      const dealAmount = Number(value) || 0;
+      const monthValues = current.monthValues.map((amount, index) => {
+        const percent = Number(current.monthPercents[index]);
+        if (!percent || !dealAmount) return amount;
+        return String(amountFromPercent(dealAmount, percent));
+      });
+      return { ...current, amount: value, monthValues };
+    });
   };
 
   const formAsDeal = (): Partial<CollectiveDeal> => ({
@@ -245,6 +368,7 @@ export default function CollectiveCrmView() {
       noContract: form.noContract,
       stage: form.stage,
       amount: Number(form.amount) || sum(monthValues),
+      businessType: form.businessType,
       paymentTerm: form.paymentTerm,
       customPaymentDays: Number(form.customPaymentDays) || 0,
       monthValues,
@@ -256,6 +380,9 @@ export default function CollectiveCrmView() {
           monthIndex,
           paymentTerm: form.monthTerms[monthIndex] || form.paymentTerm,
           customPaymentDays: Number(form.customPaymentDays) || 0,
+          percent: Number(form.monthPercents[monthIndex]) || 0,
+          // "" is meaningful: it clears a picked date back to the terms.
+          dueDate: form.monthDueDates[monthIndex] || "",
         })),
       notes: form.notes.trim(),
       // Empty means "new client" — Xero creates the contact from the details above.
@@ -403,11 +530,46 @@ export default function CollectiveCrmView() {
   const handleCheckXeroNow = async () => {
     try {
       const summary = await syncXero().unwrap();
-      toast.success(`Checked Xero: ${summary.checked} documents checked.`);
+      const overdue = summary.overdue?.length || 0;
+      toast.success(
+        `Checked Xero: ${summary.checked} documents checked${overdue ? `, ${overdue} overdue` : ""}.`,
+      );
     } catch (err) {
       toast.error(apiErrorMessage(err, "Could not sync with Xero."));
     }
   };
+
+  /*
+   * The reminder goes out on its own overnight; this is the "send it now"
+   * button, so an admin can chase the team without waiting for the next run.
+   */
+  const [sendReminders, { isLoading: reminding }] = useSendCollectiveRemindersMutation();
+  const handleSendReminders = async () => {
+    try {
+      const summary = await sendReminders({ force: true }).unwrap();
+      if (summary.owners) {
+        toast.success(
+          `Reminder sent to ${summary.owners} owner${summary.owners === 1 ? "" : "s"} covering ${summary.payments} payment${summary.payments === 1 ? "" : "s"}.`,
+        );
+      } else if (!summary.mailConfigured) {
+        // "Nothing was due" and "email isn't connected" are very different
+        // answers, and the second one needs someone to act on it.
+        toast.error(
+          `${summary.due} payment${summary.due === 1 ? " is" : "s are"} due, but email is not connected yet. Ask your developer to add the SMTP settings to the server.`,
+        );
+      } else {
+        toast.success("Nothing is due to be invoiced right now.");
+      }
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Could not send the reminders."));
+    }
+  };
+
+  // Everything still sitting in Scheduled that has reached its due date.
+  const dueToInvoice = payments.filter(
+    ({ deal, installment }) =>
+      installment.stage === "Scheduled" && Boolean(overdueLabel(installment, deal)),
+  );
 
   return (
     <>
@@ -612,9 +774,22 @@ export default function CollectiveCrmView() {
       <section className="section crm-board-section">
         <div className="section-head">
           <h2>Payment schedule — invoice by invoice</h2>
-          <span className="pill">
-            {money(payments.reduce((total, entry) => total + entry.installment.amount, 0))}
-          </span>
+          <div className="section-actions">
+            {collectiveUser.role === "admin" ? (
+              <button
+                className="secondary"
+                type="button"
+                onClick={handleSendReminders}
+                disabled={reminding}
+                title="Email each sales owner the payments that are due to be invoiced"
+              >
+                {reminding ? "Sending…" : "Send invoice reminders"}
+              </button>
+            ) : null}
+            <span className="pill">
+              {money(payments.reduce((total, entry) => total + entry.installment.amount, 0))}
+            </span>
+          </div>
         </div>
         <div className="section-body">
           <small className="field-hint">
@@ -622,6 +797,21 @@ export default function CollectiveCrmView() {
             payment into <strong>To Be Invoiced</strong> without touching the rest of the deal.
           </small>
         </div>
+        {/* The same list the overnight reminder email covers, so the board says
+            what the email says. */}
+        {dueToInvoice.length ? (
+          <div className="section-body">
+            <div className="notice invoice-due-notice">
+              <strong>
+                {dueToInvoice.length} payment{dueToInvoice.length === 1 ? "" : "s"} due to be
+                invoiced
+              </strong>{" "}
+              ({money(dueToInvoice.reduce((total, entry) => total + entry.installment.amount, 0))}) —
+              move {dueToInvoice.length === 1 ? "it" : "them"} to <strong>To Be Invoiced</strong> and
+              the draft is raised in Xero. Owners are emailed this list automatically.
+            </div>
+          </div>
+        ) : null}
         <div className="crm-board payment-board">
           {installmentStages.map((stage) => {
             const stagePayments = payments.filter((entry) => entry.installment.stage === stage);
@@ -694,17 +884,38 @@ export default function CollectiveCrmView() {
                           </span>
                           <span>{deal.dealName}</span>
                           <small>
-                            {/* This payment's own terms, not the deal's default. */}
+                            {/* This payment's own date, or its own terms — not the
+                                deal's default. */}
                             {installmentDueLabel(
                               installment.monthIndex,
                               installment.paymentTerm || deal.paymentTerm,
                               installment.customPaymentDays ?? deal.customPaymentDays,
+                              installment.dueDate,
                             )}
                           </small>
-                          {installment.xeroInvoiceNumber ? (
+                          {installment.xeroInvoiceNumber || overdueLabel(installment, deal) ? (
                             <div className="crm-tags">
-                              <em>{installment.xeroInvoiceNumber}</em>
+                              {installment.xeroInvoiceNumber ? (
+                                <em>{installment.xeroInvoiceNumber}</em>
+                              ) : null}
+                              {/* How late it is — from Xero once the invoice exists,
+                                  from the due date while it is still scheduled. */}
+                              {overdueLabel(installment, deal) ? (
+                                <em className="crm-card-flag is-rejected">
+                                  {overdueLabel(installment, deal)}
+                                </em>
+                              ) : null}
                             </div>
+                          ) : null}
+                          {/* Xero refusing a draft used to be invisible from here.
+                              Whatever reason Xero gave is on the card. */}
+                          {!installment.xeroInvoiceId && installment.xeroStatus ? (
+                            <span
+                              className="crm-card-flag is-rejected"
+                              title={installment.xeroStatus}
+                            >
+                              Xero refused this draft — {installment.xeroStatus}
+                            </span>
                           ) : null}
                           {stage === "To Be Invoiced" && !installment.xeroInvoiceId ? (
                             <button
@@ -794,8 +1005,9 @@ export default function CollectiveCrmView() {
                     value={form.company}
                     onChange={(event) => applyContact(event.target.value)}
                   />
+                  {/* Only the closest matches — see CONTACT_SUGGESTIONS. */}
                   <datalist id="collective-xero-contacts">
-                    {xeroContacts.map((contact) => (
+                    {contactSuggestions.map((contact) => (
                       <option value={contact.name} key={contact.contactId} />
                     ))}
                   </datalist>
@@ -826,40 +1038,35 @@ export default function CollectiveCrmView() {
                     step="0.01"
                     placeholder="0.00"
                     value={form.amount}
-                    onChange={(event) => setForm({ ...form, amount: event.target.value })}
+                    onChange={(event) => setDealAmount(event.target.value)}
                   />
+                  <small className="field-hint">
+                    Split it across the months on the payment schedule below — by amount or by
+                    percentage.
+                  </small>
                 </div>
 
+                {/* Payment terms used to sit here as well as on the schedule. The
+                    client asked for one place only, so they now live entirely with
+                    the schedule at the bottom, where each month sets its own. */}
                 <div className="field">
-                  <label htmlFor="collectivePaymentTerm">Payment terms</label>
+                  <label htmlFor="collectiveBusinessType">Business type</label>
                   <select
-                    id="collectivePaymentTerm"
-                    value={form.paymentTerm}
-                    onChange={(event) => setForm({ ...form, paymentTerm: event.target.value })}
+                    id="collectiveBusinessType"
+                    value={form.businessType}
+                    onChange={(event) =>
+                      setForm({ ...form, businessType: event.target.value as BusinessType })
+                    }
                   >
-                    {paymentTerms.map((term) => (
-                      <option value={term.value} key={term.value}>
-                        {term.label}
+                    {businessTypes.map((type) => (
+                      <option value={type.value} key={type.value}>
+                        {type.label}
                       </option>
                     ))}
                   </select>
                   <small className="field-hint">
-                    Applied to each scheduled month separately, so every invoice gets its own due
-                    date.
+                    Sets the commission rate on this deal. See the Commission tab for the rates.
                   </small>
-                </div>
-
-                <div className="field">
-                  <label htmlFor="collectiveCustomDays">Own time in days</label>
-                  <input
-                    id="collectiveCustomDays"
-                    type="number"
-                    min="0"
-                    step="1"
-                    placeholder="Only if custom"
-                    value={form.customPaymentDays}
-                    onChange={(event) => setForm({ ...form, customPaymentDays: event.target.value })}
-                  />
                 </div>
 
                 <div className="field">
@@ -966,10 +1173,48 @@ export default function CollectiveCrmView() {
                 </div>
 
                 <div className="field wide">
-                  <label>Payment schedule</label>
+                  <label htmlFor="collectivePaymentTerm">Payment schedule</label>
+                  <div className="schedule-defaults">
+                    <label className="schedule-default">
+                      <span>Default terms</span>
+                      <select
+                        id="collectivePaymentTerm"
+                        className="compact-select"
+                        value={form.paymentTerm}
+                        onChange={(event) => setForm({ ...form, paymentTerm: event.target.value })}
+                      >
+                        {paymentTerms.map((term) => (
+                          <option value={term.value} key={term.value}>
+                            {term.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="schedule-default">
+                      <span>Own time in days</span>
+                      <input
+                        id="collectiveCustomDays"
+                        type="number"
+                        min="0"
+                        step="1"
+                        placeholder="Only if custom"
+                        value={form.customPaymentDays}
+                        onChange={(event) =>
+                          setForm({ ...form, customPaymentDays: event.target.value })
+                        }
+                      />
+                    </label>
+                  </div>
+
                   <div className="collective-payment-grid">
                     {months.map((month, index) => {
                       const hasAmount = Number(form.monthValues[index]) > 0;
+                      const term = form.monthTerms[index] || form.paymentTerm;
+                      const derivedDue = installmentDueDate(
+                        index,
+                        term,
+                        Number(form.customPaymentDays) || 0,
+                      );
                       return (
                         <label key={month}>
                           <span>{month}</span>
@@ -978,12 +1223,25 @@ export default function CollectiveCrmView() {
                             min="0"
                             step="0.01"
                             placeholder="0"
+                            aria-label={`${month} amount`}
                             value={form.monthValues[index]}
-                            onChange={(event) => {
-                              const next = [...form.monthValues];
-                              next[index] = event.target.value;
-                              setForm({ ...form, monthValues: next });
-                            }}
+                            onChange={(event) => setMonthAmount(index, event.target.value)}
+                          />
+                          {/*
+                            Enter a month as a share of the deal instead of a figure —
+                            "40% now, 60% on delivery" is how these are agreed, and the
+                            amount is worked out from the deal value.
+                          */}
+                          <input
+                            className="month-percent"
+                            type="number"
+                            min="0"
+                            max="100"
+                            step="0.01"
+                            placeholder="% of deal"
+                            aria-label={`${month} percentage of the deal`}
+                            value={form.monthPercents[index]}
+                            onChange={(event) => setMonthPercent(index, event.target.value)}
                           />
                           {/*
                             Each month invoices separately, so each one carries its
@@ -991,30 +1249,46 @@ export default function CollectiveCrmView() {
                             normal schedule, not an exception.
                           */}
                           {hasAmount ? (
-                            <select
-                              className="compact-select month-term"
-                              aria-label={`${month} payment terms`}
-                              value={form.monthTerms[index] || form.paymentTerm}
-                              onChange={(event) => {
-                                const next = [...form.monthTerms];
-                                next[index] = event.target.value;
-                                setForm({ ...form, monthTerms: next });
-                              }}
-                            >
-                              {paymentTerms.map((term) => (
-                                <option key={term.value} value={term.value}>
-                                  {term.label}
-                                </option>
-                              ))}
-                            </select>
+                            <>
+                              <select
+                                className="compact-select month-term"
+                                aria-label={`${month} payment terms`}
+                                value={term}
+                                onChange={(event) => {
+                                  const next = [...form.monthTerms];
+                                  next[index] = event.target.value;
+                                  setForm({ ...form, monthTerms: next });
+                                }}
+                              >
+                                {paymentTerms.map((option) => (
+                                  <option key={option.value} value={option.value}>
+                                    {option.label}
+                                  </option>
+                                ))}
+                              </select>
+                              {/*
+                                The exact date this payment is due. It overrides the
+                                terms above and is what the "move this to To Be
+                                Invoiced" reminder counts down to.
+                              */}
+                              <input
+                                className="month-due"
+                                type="date"
+                                aria-label={`${month} exact due date`}
+                                title={`Leave blank to use the terms (${derivedDue})`}
+                                value={form.monthDueDates[index]}
+                                onChange={(event) => setMonthDueDate(index, event.target.value)}
+                              />
+                            </>
                           ) : null}
                         </label>
                       );
                     })}
                   </div>
                   <small className="field-hint">
-                    Set terms per month where they differ — anything left alone follows the deal&rsquo;s
-                    default terms above.
+                    Enter an amount or a percentage of the deal — either fills in the other. Set
+                    terms per month where they differ, and pick an exact due date where one has been
+                    agreed; a blank date follows the terms.
                   </small>
                   <small className={`allocation-note is-${allocation.tone}`} data-allocation={allocation.tone}>
                     {allocation.message}

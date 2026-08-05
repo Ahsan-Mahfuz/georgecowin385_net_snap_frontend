@@ -1,7 +1,10 @@
 "use client";
 
 import { useState } from "react";
+import { useSelector } from "react-redux";
+import { RootState } from "@/redux/store";
 import { months, money } from "@/lib/format";
+import { refId } from "@/lib/adapters";
 import {
   useGetApprovalsQuery,
   useCreateApprovalMutation,
@@ -17,10 +20,13 @@ function refName(ref: ApiApproval["submittedBy"]): string {
 
 function ApprovalCard({
   item,
+  canDecide,
   onApprove,
   onReject,
 }: {
   item: ApiApproval;
+  /** False when this request belongs to a different manager — see canDecideOn. */
+  canDecide: boolean;
   onApprove: (id: string) => void;
   onReject: (id: string) => void;
 }) {
@@ -44,10 +50,18 @@ function ApprovalCard({
       {item.status === "rejected" && item.rejectionReason ? (
         <div className="notice">Rejected: {item.rejectionReason}</div>
       ) : null}
-      {pending ? (
+      {/* A Contract Signed deal goes to that manager's own line manager and
+          nobody else, so everyone else sees who it is with rather than buttons
+          that would only be refused by the API. */}
+      {pending && canDecide ? (
         <div className="deal-actions">
           <button className="primary" type="button" onClick={() => onApprove(item._id)}>Approve</button>
           <button className="secondary danger-button" type="button" onClick={() => onReject(item._id)}>Reject</button>
+        </div>
+      ) : pending ? (
+        <div className="deal-line muted">
+          <span>Waiting on</span>
+          <span>{item.approver ? refName(item.approver) : "an admin"}</span>
         </div>
       ) : null}
     </article>
@@ -56,9 +70,24 @@ function ApprovalCard({
 
 export default function ApprovalsView() {
   const { data = [], isLoading } = useGetApprovalsQuery();
+  const user = useSelector((s: RootState) => s.session.user);
   const [approve] = useApproveApprovalMutation();
   const [reject] = useRejectApprovalMutation();
   const [showArchive, setShowArchive] = useState(false);
+
+  /**
+   * Mirrors assertCanDecide in approval.service.ts. When a request names an
+   * approver only that person may decide it — an admin passing by must not sign
+   * off someone else's deal. An unaddressed request (the submitter has no line
+   * manager on file) falls to admin or operations so it is not stuck for ever.
+   * Never the person who raised it.
+   */
+  const canDecideOn = (item: ApiApproval): boolean => {
+    if (!user) return false;
+    if (refId(item.submittedBy) === user.id) return false;
+    if (item.approver) return refId(item.approver) === user.id;
+    return user.role === "admin" || user.role === "operations";
+  };
 
   const onApprove = (id: string) => approve(id);
   const onReject = (id: string) => {
@@ -89,7 +118,7 @@ export default function ApprovalsView() {
         </div>
         <div className="section-body manager-list">
           {dealApprovals.length ? (
-            dealApprovals.map((item) => <ApprovalCard key={item._id} item={item} onApprove={onApprove} onReject={onReject} />)
+            dealApprovals.map((item) => <ApprovalCard key={item._id} item={item} canDecide={canDecideOn(item)} onApprove={onApprove} onReject={onReject} />)
           ) : (
             <div className="notice">{isLoading ? "Loading…" : "No deals waiting for approval."}</div>
           )}
@@ -103,7 +132,7 @@ export default function ApprovalsView() {
         </div>
         <div className="section-body manager-list">
           {expenseApprovals.length ? (
-            expenseApprovals.map((item) => <ApprovalCard key={item._id} item={item} onApprove={onApprove} onReject={onReject} />)
+            expenseApprovals.map((item) => <ApprovalCard key={item._id} item={item} canDecide={canDecideOn(item)} onApprove={onApprove} onReject={onReject} />)
           ) : (
             <div className="notice">No expenses waiting for approval.</div>
           )}
@@ -123,7 +152,7 @@ export default function ApprovalsView() {
         {showArchive ? (
           <div className="section-body manager-list">
             {resolved.length ? (
-              resolved.map((item) => <ApprovalCard key={item._id} item={item} onApprove={onApprove} onReject={onReject} />)
+              resolved.map((item) => <ApprovalCard key={item._id} item={item} canDecide={canDecideOn(item)} onApprove={onApprove} onReject={onReject} />)
             ) : (
               <div className="notice">No resolved approvals yet.</div>
             )}

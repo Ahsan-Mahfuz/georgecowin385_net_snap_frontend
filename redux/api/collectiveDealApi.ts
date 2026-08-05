@@ -1,5 +1,10 @@
 import { baseApi } from "./baseApi";
-import { ApiEnvelope, ApiCollectiveDeal } from "./types";
+import {
+  ApiEnvelope,
+  ApiCollectiveDeal,
+  ApiCollectiveCommission,
+  ApiReminderSummary,
+} from "./types";
 
 export const collectiveDealApi = baseApi.injectEndpoints({
   endpoints: (builder) => ({
@@ -61,6 +66,23 @@ export const collectiveDealApi = baseApi.injectEndpoints({
       query: (id) => ({ url: `/collective-deal/${id}/mark-paid`, method: "POST" }),
       invalidatesTags: ["CollectiveDeal"],
     }),
+    // Commission per salesperson, at the rates admin holds in Settings.
+    getCollectiveCommission: builder.query<ApiCollectiveCommission, void>({
+      query: () => "/collective-deal/commission",
+      transformResponse: (res: ApiEnvelope<ApiCollectiveCommission>) => res.data,
+      providesTags: ["CollectiveDeal", "Settings"],
+    }),
+    // Mail every owner the payments that are due to move to "To Be Invoiced".
+    // Sends nightly on its own; this is the "send it now" button.
+    sendCollectiveReminders: builder.mutation<ApiReminderSummary, { force?: boolean } | void>({
+      query: (body) => ({
+        url: "/collective-deal/send-reminders",
+        method: "POST",
+        body: body || {},
+      }),
+      transformResponse: (res: ApiEnvelope<ApiReminderSummary>) => res.data,
+      invalidatesTags: ["CollectiveDeal"],
+    }),
   }),
 });
 
@@ -74,4 +96,6 @@ export const {
   useCreateCollectiveInstallmentInvoiceMutation,
   useMarkCollectiveInvoicedMutation,
   useMarkCollectivePaidMutation,
+  useGetCollectiveCommissionQuery,
+  useSendCollectiveRemindersMutation,
 } = collectiveDealApi;

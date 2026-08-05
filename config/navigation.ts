@@ -76,6 +76,7 @@ export const collectiveViews: ViewItem[] = [
   { id: "collective-crm", label: "CRM" },
   { id: "collective-months", label: "Deals by month" },
   { id: "collective-quarters", label: "Quarter view" },
+  { id: "collective-commission", label: "Commission" },
 ];
 
 // Full catalogue of creator views (superset used to build the registry / routes).

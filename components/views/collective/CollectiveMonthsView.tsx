@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { months, money, sum } from "@/lib/format";
 import { collectiveStages, type CollectiveDeal } from "@/lib/mock";
-import { scopedCollectiveDeals, type CollectiveScope } from "@/lib/collective";
+import { dealsByStage, scopedCollectiveDeals, type CollectiveScope } from "@/lib/collective";
 import { useCollectiveTeam } from "@/hooks/useCollectiveTeam";
 import { useGetCollectiveDealsQuery } from "@/redux/api/collectiveDealApi";
 import { toCollectiveDeal } from "@/lib/adapters";
@@ -37,6 +37,19 @@ export default function CollectiveMonthsView() {
       : deals.filter((deal) => Number((deal.monthValues || [])[selectedMonth] || 0) > 0);
 
   const selectedDeal = deals.find((deal) => deal.id === selectedDealId) || null;
+
+  /*
+   * Deals by stage for whatever is in view. With a month picked it counts only
+   * that month's cash, so the tiles add up to the month total on screen rather
+   * than to the whole deal values — otherwise the two figures contradict each
+   * other on the same page.
+   */
+  const stageTallies =
+    selectedMonth === null
+      ? dealsByStage(deals)
+      : dealsByStage(monthDeals, (deal) => Number((deal.monthValues || [])[selectedMonth] || 0));
+  const stageScopeLabel =
+    selectedMonth === null ? "all scheduled deals" : `cash landing in ${months[selectedMonth]}`;
 
   return (
     <>
@@ -111,6 +124,33 @@ export default function CollectiveMonthsView() {
               </tr>
             </tbody>
           </table>
+        </div>
+      </section>
+
+      <section className="section soft-section">
+        <div className="section-head">
+          <h2>Deals by stage</h2>
+          <span className="pill">
+            {money(stageTallies.reduce((total, tally) => total + tally.total, 0))}
+          </span>
+        </div>
+        <div className="section-body">
+          {stageTallies.length ? (
+            <div className="stage-tally-grid">
+              {stageTallies.map((tally) => (
+                <div className="stage-tally" key={tally.stage}>
+                  <span>{tally.stage}</span>
+                  <strong>{money(tally.total)}</strong>
+                  <small>
+                    {tally.count} deal{tally.count === 1 ? "" : "s"}
+                  </small>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="notice">No deals to break down yet.</div>
+          )}
+          <small className="field-hint">Counting {stageScopeLabel}.</small>
         </div>
       </section>
 

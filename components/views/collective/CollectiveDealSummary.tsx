@@ -45,6 +45,10 @@ export default function CollectiveDealSummary({
           <strong>{collectivePaymentLabel(deal)}</strong>
         </div>
         <div>
+          <span>Business type</span>
+          <strong>{deal.businessType || "New Business"}</strong>
+        </div>
+        <div>
           <span>Contact</span>
           <strong>{deal.contactName || "—"}</strong>
         </div>
@@ -84,10 +88,12 @@ export default function CollectiveDealSummary({
                 <em>{installment.stage}</em>
                 <small>
                   {installment.xeroInvoiceNumber ||
+                    // This payment's own date and terms, not the deal's default.
                     installmentDueLabel(
                       installment.monthIndex,
-                      deal.paymentTerm,
-                      deal.customPaymentDays,
+                      installment.paymentTerm || deal.paymentTerm,
+                      installment.customPaymentDays ?? deal.customPaymentDays,
+                      installment.dueDate,
                     )}
                 </small>
               </li>

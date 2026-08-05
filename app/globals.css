@@ -886,6 +886,40 @@ img {
   padding: 0 8px;
 }
 
+/* Percentage of the deal, sitting under the amount for the same month. Quieter
+   than the amount so the figure stays the thing you read first. */
+.collective-payment-grid .month-percent {
+  min-height: 30px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* Exact due date for one payment. Same footprint as the terms select above it. */
+.collective-payment-grid .month-due {
+  min-height: 30px;
+  font-size: 12px;
+}
+
+/* The deal-wide fallbacks, now that payment terms live with the schedule rather
+   than at the top of the deal. */
+.schedule-defaults {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.schedule-default {
+  display: grid;
+  gap: 5px;
+}
+
+.schedule-default span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+}
+
 .xero-status-card {
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -3634,6 +3668,48 @@ button.small,
 .allocation-note.is-empty {
   background: var(--surface-2, #f4f5f3);
   color: var(--muted);
+}
+
+/* "3 payments due to be invoiced" — the same list the overnight reminder covers,
+   so the board says what the email says. Amber: it is a nudge, not a failure. */
+.invoice-due-notice {
+  border-left: 4px solid var(--amber);
+  background: var(--amber-soft);
+  color: var(--amber);
+}
+
+/* Stage tallies on Deals by month and Quarter view. Reuses the CRM's own
+   earnings-grid tiles so the three screens read as one board. */
+.stage-tally-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.stage-tally {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fbfcfa;
+  padding: 10px 12px;
+  display: grid;
+  gap: 2px;
+}
+
+.stage-tally span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.stage-tally strong {
+  font-size: 16px;
+}
+
+.stage-tally small {
+  color: var(--muted);
+  font-size: 11px;
 }
 
 @media (max-width: 1100px) {

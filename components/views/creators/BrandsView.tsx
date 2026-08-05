@@ -23,6 +23,8 @@ type BrandRecord = {
   billingAddress: string;
   paymentTerm: string;
   customPaymentDays: number;
+  /** What happened last time these details were pushed to Xero. */
+  xeroSyncStatus: string;
   updatedAt?: string;
 };
 
@@ -127,6 +129,7 @@ export default function BrandsView() {
         billingAddress: b.billingAddress || "",
         paymentTerm: b.paymentTerm || "30",
         customPaymentDays: Number(b.customPaymentDays || 0),
+        xeroSyncStatus: b.xeroSyncStatus || "",
         updatedAt: b.updatedAt,
       });
     });
@@ -143,6 +146,8 @@ export default function BrandsView() {
           billingAddress: "",
           paymentTerm: "30",
           customPaymentDays: 0,
+          // Seen on a deal but never saved here, so it has never been sent to Xero.
+          xeroSyncStatus: "",
         });
       }
     });
@@ -322,6 +327,19 @@ export default function BrandsView() {
                   </div>
                 </div>
               </form>
+              {/* A brand saved here is now created in Xero straight away rather
+                  than waiting for its first invoice, so say what Xero did with
+                  it — silence here is what "new brands are not being added to
+                  Xero at all" looked like. */}
+              {selected?.xeroSyncStatus ? (
+                <div
+                  className={`notice ${
+                    selected.xeroSyncStatus.startsWith("Saved in Xero") ? "soft-note" : ""
+                  }`}
+                >
+                  <strong>Xero:</strong> {selected.xeroSyncStatus}
+                </div>
+              ) : null}
               <div className="notice soft-note">
                 * Details may have changed. Managers should check email, company
                 address, and payment terms before sending a deal to invoice.

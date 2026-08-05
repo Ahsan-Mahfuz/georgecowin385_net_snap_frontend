@@ -53,6 +53,8 @@ export interface Deal {
   /** Raw Xero status: DRAFT | SUBMITTED | AUTHORISED | PAID | VOIDED. */
   xeroState?: string;
   xeroDueDate?: string;
+  /** Days past due with money still owing, read back from Xero. 0 when fine. */
+  xeroOverdueDays?: number;
   financeStatus?: string;
   invoiceDate?: string;
   remittanceStatus?: string;
@@ -95,14 +97,24 @@ export interface EmailLead {
 export interface Installment {
   monthIndex: number;
   amount: number;
+  /** Share of the deal this payment carries, when entered as a percentage. */
+  percent?: number;
   stage: string;
   paymentTerm?: string;
   customPaymentDays?: number;
+  /** Exact due date picked on the schedule calendar (yyyy-mm-dd). */
+  dueDate?: string;
+  reminderSentAt?: string;
   xeroInvoiceId: string;
   xeroInvoiceNumber: string;
   xeroStatus: string;
+  /** Days past due with money still owing, read back from Xero. */
+  overdueDays?: number;
   invoiceDate: string;
 }
+
+/** How a sales deal was won — sets the commission rate. */
+export type BusinessType = "New Business" | "Returning Business" | "Other";
 
 export interface CollectiveDeal {
   id: string;
@@ -118,6 +130,7 @@ export interface CollectiveDeal {
   noContract: boolean;
   stage: string;
   amount: number;
+  businessType: BusinessType;
   paymentTerm: string;
   customPaymentDays: number;
   monthValues: number[];
@@ -154,6 +167,17 @@ export const collectivePipelineStages = ["Conversation", "Pitching", "Shortliste
 // The lifecycle of a single scheduled payment within a deal.
 export const installmentStages = ["Scheduled", "To Be Invoiced", "Invoiced", "Paid"];
 export const productionItems = ["Producer", "DOP", "Editor"];
+
+/**
+ * How a Collective deal was won, and the commission it earns. The percentages
+ * here are only the fallback shown before Settings loads — the live rates come
+ * from the backend so an admin can change them without a release.
+ */
+export const businessTypes: { value: BusinessType; label: string; settingsKey: string; fallbackRate: number }[] = [
+  { value: "New Business", label: "New Business", settingsKey: "newBusiness", fallbackRate: 2 },
+  { value: "Returning Business", label: "Returning Business", settingsKey: "returningBusiness", fallbackRate: 1 },
+  { value: "Other", label: "Other", settingsKey: "other", fallbackRate: 0 },
+];
 
 export const paymentTerms = [
   { label: "Upfront", value: "upfront", days: 0 },

@@ -6,6 +6,7 @@
 import { months, sum } from "./format";
 import {
   collectiveLiveStages,
+  collectiveStages,
   paymentTerms,
   type CollectiveDeal,
   type Installment,
@@ -45,23 +46,119 @@ export function paymentTermDays(paymentTerm: string, customPaymentDays: number):
   return paymentTerms.find((term) => term.value === paymentTerm)?.days ?? 30;
 }
 
+/** The year the portal's month labels ("Mon YY") belong to. */
+function scheduleYear(monthIndex: number): number {
+  return 2000 + Number(String(months[monthIndex]).split(" ")[1] || 26);
+}
+
+const shortDate = (date: Date) =>
+  date.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "2-digit" });
+
 /**
- * When an installment is actually due: end of its scheduled month plus the
- * payment terms. This is what makes the terms "align with the schedule" —
- * every month gets its own due date rather than one date for the whole deal.
+ * When an installment is due, as a yyyy-mm-dd date.
+ *
+ * A date picked on the schedule calendar wins outright — that is the whole point
+ * of picking one, and it is what drives the "move this to To Be Invoiced"
+ * reminder. Otherwise it falls back to the old rule: end of the scheduled month
+ * plus that payment's own terms.
+ */
+export function installmentDueDate(
+  monthIndex: number,
+  paymentTerm: string,
+  customPaymentDays: number,
+  exactDate?: string,
+): string {
+  if (exactDate) return exactDate;
+  const days = paymentTermDays(paymentTerm, customPaymentDays);
+  const due = new Date(scheduleYear(monthIndex), monthIndex + 1, 0); // last day of that month
+  due.setDate(due.getDate() + days);
+  const month = String(due.getMonth() + 1).padStart(2, "0");
+  const day = String(due.getDate()).padStart(2, "0");
+  return `${due.getFullYear()}-${month}-${day}`;
+}
+
+/**
+ * When an installment is actually due, as a label. This is what makes the terms
+ * "align with the schedule" — every month gets its own due date rather than one
+ * date for the whole deal.
  */
 export function installmentDueLabel(
   monthIndex: number,
   paymentTerm: string,
   customPaymentDays: number,
+  exactDate?: string,
 ): string {
+  if (exactDate) {
+    const picked = new Date(`${exactDate}T00:00:00`);
+    return Number.isNaN(picked.getTime()) ? `Due ${exactDate}` : `Due ${shortDate(picked)}`;
+  }
   const days = paymentTermDays(paymentTerm, customPaymentDays);
   if (days === 0) return `Due in ${months[monthIndex]}`;
-  // Month labels are "Mon YY" for the portal's working year.
-  const year = 2000 + Number(String(months[monthIndex]).split(" ")[1] || 26);
-  const due = new Date(year, monthIndex + 1, 0); // last day of that month
+  const due = new Date(scheduleYear(monthIndex), monthIndex + 1, 0);
   due.setDate(due.getDate() + days);
-  return `Due ${due.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "2-digit" })}`;
+  return `Due ${shortDate(due)}`;
+}
+
+/** Whole days from today until a yyyy-mm-dd date; negative once it has passed. */
+export function daysUntil(isoDay: string, today = new Date()): number | null {
+  if (!isoDay) return null;
+  const target = new Date(`${isoDay}T00:00:00`);
+  if (Number.isNaN(target.getTime())) return null;
+  const start = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  return Math.round((target.getTime() - start.getTime()) / 86_400_000);
+}
+
+/**
+ * The chase label on a payment card. Xero's own overdue count wins once the
+ * invoice exists there; before that it is worked out from the due date, which is
+ * what tells a rep a payment needs moving to "To Be Invoiced".
+ */
+export function overdueLabel(installment: Installment, deal: CollectiveDeal): string {
+  const fromXero = Number(installment.overdueDays || 0);
+  if (fromXero > 0) return `${fromXero} day${fromXero === 1 ? "" : "s"} overdue`;
+
+  if (installment.stage !== "Scheduled") return "";
+  const due = installmentDueDate(
+    installment.monthIndex,
+    installment.paymentTerm || deal.paymentTerm,
+    installment.customPaymentDays ?? deal.customPaymentDays,
+    installment.dueDate,
+  );
+  const days = daysUntil(due);
+  if (days === null) return "";
+  if (days < 0) return `${Math.abs(days)} day${Math.abs(days) === 1 ? "" : "s"} late to invoice`;
+  if (days === 0) return "Invoice today";
+  if (days <= 7) return `Invoice in ${days} day${days === 1 ? "" : "s"}`;
+  return "";
+}
+
+/** How many deals and how much money sit in each stage. */
+export interface StageTally {
+  stage: string;
+  count: number;
+  total: number;
+}
+
+/**
+ * Deals grouped by stage, with a money total each. Shared by the CRM, Deals by
+ * month and Quarter view so the three screens can never disagree about what a
+ * stage is worth. `valueOf` lets each screen count what it cares about — the
+ * whole deal on the CRM, only the months in view on the other two.
+ */
+export function dealsByStage(
+  deals: CollectiveDeal[],
+  valueOf: (deal: CollectiveDeal) => number = collectiveDealTotal,
+): StageTally[] {
+  return collectiveStages
+    .map((stage) => {
+      const inStage = deals.filter((deal) => deal.stage === stage);
+      return {
+        stage,
+        count: inStage.length,
+        total: inStage.reduce((running, deal) => running + valueOf(deal), 0),
+      };
+    })
+    .filter((tally) => tally.count > 0);
 }
 
 /** The fields Finance needs before anything can be invoiced. */
@@ -106,6 +203,22 @@ export function installmentBlockReason(
   }
   const missing = invoiceBlockReason(deal);
   return missing ? `Add ${missing} before invoicing the ${months[installment.monthIndex]} payment.` : null;
+}
+
+/**
+ * A percentage of the deal, as money. Rounded to the penny so the schedule adds
+ * back up to the deal amount rather than drifting by fractions.
+ */
+export function amountFromPercent(dealAmount: number, percent: number): number {
+  const value = (Number(dealAmount || 0) * Number(percent || 0)) / 100;
+  return Math.round(value * 100) / 100;
+}
+
+/** The reverse — what share of the deal an amount represents. */
+export function percentFromAmount(dealAmount: number, amount: number): number {
+  const total = Number(dealAmount || 0);
+  if (!total) return 0;
+  return Math.round((Number(amount || 0) / total) * 10000) / 100;
 }
 
 export interface Allocation {

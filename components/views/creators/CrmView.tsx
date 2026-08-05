@@ -141,12 +141,27 @@ export default function CrmView() {
   };
 
   /**
+   * Contact lookup by name, built once instead of scanning the whole list on
+   * every keystroke. Names are normalised because Xero's own matching is exact
+   * and case-sensitive, so "Acme Ltd" and "ACME  Ltd" were treated as two
+   * different brands and neither of them autofilled.
+   */
+  const contactsByName = useMemo(() => {
+    const index = new Map<string, (typeof xeroContacts)[number]>();
+    xeroContacts.forEach((c) => index.set(c.name.trim().toLowerCase().replace(/\s+/g, " "), c));
+    return index;
+  }, [xeroContacts]);
+
+  const findContact = (name: string) =>
+    contactsByName.get(name.trim().toLowerCase().replace(/\s+/g, " "));
+
+  /**
    * Picking a contact that already exists in Xero is what stops a brand becoming
    * a brand-new contact on every deal — and it brings the billing email and
    * address across so Finance is not chasing them later.
    */
   const applyContact = (name: string) => {
-    const match = xeroContacts.find((c) => c.name.toLowerCase() === name.trim().toLowerCase());
+    const match = findContact(name);
     setForm((current) => ({
       ...current,
       companyName: name,
@@ -159,13 +174,25 @@ export default function CrmView() {
     }));
   };
 
+  /*
+   * Only the contacts matching what has been typed, capped so the list stays
+   * instant. Rendering every contact in the organisation on every keystroke is
+   * what made the picker feel slow.
+   */
+  const contactSuggestions = useMemo(() => {
+    const typed = form.companyName.trim().toLowerCase();
+    const pool = typed ? xeroContacts.filter((c) => c.name.toLowerCase().includes(typed)) : xeroContacts;
+    return pool.slice(0, 40);
+  }, [xeroContacts, form.companyName]);
+
   // Says plainly what will happen, including when Xero holds no details for the
   // contact — otherwise an empty email/address box just looks broken.
   const contactHint = (() => {
-    if (!xeroContacts.length) return "";
-    const match = xeroContacts.find(
-      (c) => c.contactId === form.xeroContactId || c.name.toLowerCase() === form.companyName.trim().toLowerCase(),
-    );
+    if (!xeroContacts.length) {
+      return "Xero contacts are not available right now — type the brand name and we'll create the contact when the invoice is raised.";
+    }
+    const match =
+      xeroContacts.find((c) => c.contactId === form.xeroContactId) || findContact(form.companyName);
     if (match) {
       const missing = [!match.email && "email", !match.address && "address"].filter(Boolean);
       return missing.length
@@ -175,7 +202,7 @@ export default function CrmView() {
     if (form.companyName.trim()) {
       return "New contact. It will be created in Xero with the email address and company address below.";
     }
-    return `${xeroContacts.length} contacts available from Xero.`;
+    return `${xeroContacts.length} contacts available from Xero. Start typing to narrow the list.`;
   })();
 
   const openAddPanel = () => {
@@ -476,6 +503,24 @@ export default function CrmView() {
                               : `Waiting on ${approverForDeal.get(d.id) || "an admin"}`}
                           </span>
                         ) : null}
+                        {/* How late Xero says the invoice is — the overdue time the
+                            client asked to see without opening Xero. */}
+                        {Number(d.xeroOverdueDays || 0) > 0 ? (
+                          <span className="crm-card-flag is-rejected">
+                            {d.xeroOverdueDays} day{d.xeroOverdueDays === 1 ? "" : "s"} overdue
+                          </span>
+                        ) : null}
+                        {/* Xero refusing a draft used to be invisible from here —
+                            "Xero are rejecting draft invoices, we're not sure why".
+                            The reason Xero gave is on the card and in the tooltip. */}
+                        {d.financeStatus === "Xero draft failed" ? (
+                          <span
+                            className="crm-card-flag is-rejected"
+                            title={d.xeroStatus || "Xero refused this draft"}
+                          >
+                            Xero refused this draft — {d.xeroStatus || "no reason given"}
+                          </span>
+                        ) : null}
                       </div>
                     ))
                   ) : (
@@ -555,6 +600,16 @@ export default function CrmView() {
                     <input id="crmUseUSD" type="checkbox" checked={form.useUSD} onChange={(e) => setForm({ ...form, useUSD: e.target.checked })} />
                     Use USD for this deal
                   </label>
+                  {/* Xero refused USD invoices from a sterling organisation, which is
+                      what "Xero are rejecting draft invoices" turned out to be. The
+                      draft goes over in GBP and the instruction rides on the line. */}
+                  {form.useUSD ? (
+                    <small className="field-hint">
+                      The Xero draft is raised in <strong>GBP</strong> with{" "}
+                      <strong>&ldquo;send in USD&rdquo;</strong> on the invoice description, so
+                      whoever sends it knows to bill the brand in dollars.
+                    </small>
+                  ) : null}
                 </div>
 
                 <div className="field">
@@ -582,8 +637,9 @@ export default function CrmView() {
                     onChange={(e) => applyContact(e.target.value)}
                     placeholder="Choose an existing contact, or type a new brand"
                   />
+                  {/* Only the closest matches — see contactSuggestions. */}
                   <datalist id="crm-xero-contacts">
-                    {xeroContacts.map((c) => (
+                    {contactSuggestions.map((c) => (
                       <option value={c.name} key={c.contactId} />
                     ))}
                   </datalist>
