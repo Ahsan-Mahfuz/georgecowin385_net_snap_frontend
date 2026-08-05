@@ -515,7 +515,7 @@ export default function CrmView() {
                             The reason Xero gave is on the card and in the tooltip. */}
                         {d.financeStatus === "Xero draft failed" ? (
                           <span
-                            className="crm-card-flag is-rejected"
+                            className="crm-card-flag is-rejected is-detail"
                             title={d.xeroStatus || "Xero refused this draft"}
                           >
                             Xero refused this draft — {d.xeroStatus || "no reason given"}

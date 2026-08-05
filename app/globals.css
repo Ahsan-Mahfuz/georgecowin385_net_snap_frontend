@@ -2168,6 +2168,10 @@ select:disabled {
   border-radius: 8px;
   background: #fbfcfa;
   padding: 8px;
+  /* The board scrolls sideways by design; a column must still not be widened
+     from the inside by one long word, or it drags its neighbours out of line. */
+  min-width: 0;
+  overflow: hidden;
 }
 
 .crm-column-collapsed {
@@ -3561,6 +3565,11 @@ button.small,
 
 .crm-card-flag {
   justify-self: start;
+  /* A grid item defaults to min-width:auto, so it refuses to shrink below its
+     content and pushes out of the card. Xero error text has no spaces to break
+     on ("Name%3D%3D%22Sophia%22"), which is exactly when that shows. */
+  min-width: 0;
+  max-width: 100%;
   padding: 2px 8px;
   border-radius: 10px;
   background: var(--amber-soft);
@@ -3569,11 +3578,46 @@ button.small,
   font-weight: 900;
   text-transform: uppercase;
   letter-spacing: 0.03em;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .crm-card-flag.is-rejected {
   background: var(--rose-soft);
   color: var(--rose);
+}
+
+/* A sentence rather than a label — a Xero refusal reason, say. Reads as prose,
+   and is clamped to three lines so one long message cannot make a card tower
+   over its neighbours. The full text is on the element's title. */
+.crm-card-flag.is-detail {
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: 700;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+}
+
+/* Long brand names and campaign titles get the same treatment — nothing inside
+   a card may set the card's width. */
+.crm-card,
+.crm-card > * {
+  min-width: 0;
+}
+
+.crm-card strong,
+.crm-card span,
+.crm-card-brand {
+  overflow-wrap: anywhere;
+}
+
+.crm-tags em {
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 
 /* Drop target highlight while a card is dragged over a column. */

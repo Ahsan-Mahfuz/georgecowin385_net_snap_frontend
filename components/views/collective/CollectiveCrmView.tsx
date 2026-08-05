@@ -911,7 +911,7 @@ export default function CollectiveCrmView() {
                               Whatever reason Xero gave is on the card. */}
                           {!installment.xeroInvoiceId && installment.xeroStatus ? (
                             <span
-                              className="crm-card-flag is-rejected"
+                              className="crm-card-flag is-rejected is-detail"
                               title={installment.xeroStatus}
                             >
                               Xero refused this draft — {installment.xeroStatus}
