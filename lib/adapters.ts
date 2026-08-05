@@ -136,8 +136,11 @@ export function toCollectiveDeal(d: ApiCollectiveDeal): CollectiveDeal {
       // fall back to the deal default on screen.
       paymentTerm: i.paymentTerm || "",
       customPaymentDays: Number(i.customPaymentDays || 0),
+<<<<<<< HEAD
       dueDate: i.dueDate || "",
       reminderSentAt: i.reminderSentAt || "",
+=======
+>>>>>>> ba96e6915236f6d3ec5f95840650ef0d94946b70
       xeroInvoiceId: i.xeroInvoiceId || "",
       xeroInvoiceNumber: i.xeroInvoiceNumber || "",
       xeroStatus: i.xeroStatus || "",

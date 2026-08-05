@@ -358,6 +358,7 @@ export default function ProductionView() {
             </div>
           ) : null}
 
+<<<<<<< HEAD
           {/*
             Rejection notices stay until they are read and cleared away, and they
             belong to whoever asked for the shoot — the client wanted the
@@ -366,6 +367,12 @@ export default function ProductionView() {
             The same rejection is emailed to them; see notifyProductionRejected.
           */}
           {rejectionNotices.map((r) => (
+=======
+          {/* Rejection notices stay until they are read and cleared away. */}
+          {requests
+            .filter((r) => r.status === "rejected" && !r.rejectionDismissedAt)
+            .map((r) => (
+>>>>>>> ba96e6915236f6d3ec5f95840650ef0d94946b70
               <div
                 key={r._id}
                 className="notice rejection-notice"

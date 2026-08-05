@@ -337,6 +337,7 @@ export interface ApiCollectiveDeal {
   customPaymentDays: number;
   monthValues: number[];
   installments?: ApiInstallment[];
+<<<<<<< HEAD
   /** Per-month schedule detail sent when saving the schedule (write-only). */
   installmentTerms?: {
     monthIndex: number;
@@ -345,6 +346,10 @@ export interface ApiCollectiveDeal {
     percent?: number;
     dueDate?: string;
   }[];
+=======
+  /** Per-month payment terms sent when saving the schedule (write-only). */
+  installmentTerms?: { monthIndex: number; paymentTerm?: string; customPaymentDays?: number }[];
+>>>>>>> ba96e6915236f6d3ec5f95840650ef0d94946b70
   xeroContactId?: string;
   xeroContactName?: string;
   xeroOrg: string;
