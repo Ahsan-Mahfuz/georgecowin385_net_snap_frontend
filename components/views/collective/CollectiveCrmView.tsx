@@ -68,13 +68,10 @@ const emptyForm = {
   monthValues: new Array(12).fill("") as string[],
   // Per-month payment terms; blank means "use the deal's default terms".
   monthTerms: new Array(12).fill("") as string[],
-<<<<<<< HEAD
   // Percentage of the deal each month carries. Typing one fills the amount in.
   monthPercents: new Array(12).fill("") as string[],
   // Exact date each payment is due; blank falls back to the terms.
   monthDueDates: new Array(12).fill("") as string[],
-=======
->>>>>>> ba96e6915236f6d3ec5f95840650ef0d94946b70
 };
 
 type DealForm = typeof emptyForm;
@@ -257,7 +254,6 @@ export default function CollectiveCrmView() {
         (_, index) =>
           (deal.installments || []).find((item) => item.monthIndex === index)?.paymentTerm || "",
       ),
-<<<<<<< HEAD
       monthPercents: months.map((_, index) => {
         const percent = Number(
           (deal.installments || []).find((item) => item.monthIndex === index)?.percent || 0,
@@ -268,8 +264,6 @@ export default function CollectiveCrmView() {
         (_, index) =>
           (deal.installments || []).find((item) => item.monthIndex === index)?.dueDate || "",
       ),
-=======
->>>>>>> ba96e6915236f6d3ec5f95840650ef0d94946b70
     });
     setEditingId(deal.id);
     setPanelOpen(true);
@@ -386,12 +380,9 @@ export default function CollectiveCrmView() {
           monthIndex,
           paymentTerm: form.monthTerms[monthIndex] || form.paymentTerm,
           customPaymentDays: Number(form.customPaymentDays) || 0,
-<<<<<<< HEAD
           percent: Number(form.monthPercents[monthIndex]) || 0,
           // "" is meaningful: it clears a picked date back to the terms.
           dueDate: form.monthDueDates[monthIndex] || "",
-=======
->>>>>>> ba96e6915236f6d3ec5f95840650ef0d94946b70
         })),
       notes: form.notes.trim(),
       // Empty means "new client" — Xero creates the contact from the details above.
@@ -893,20 +884,13 @@ export default function CollectiveCrmView() {
                           </span>
                           <span>{deal.dealName}</span>
                           <small>
-<<<<<<< HEAD
                             {/* This payment's own date, or its own terms — not the
                                 deal's default. */}
-=======
-                            {/* This payment's own terms, not the deal's default. */}
->>>>>>> ba96e6915236f6d3ec5f95840650ef0d94946b70
                             {installmentDueLabel(
                               installment.monthIndex,
                               installment.paymentTerm || deal.paymentTerm,
                               installment.customPaymentDays ?? deal.customPaymentDays,
-<<<<<<< HEAD
                               installment.dueDate,
-=======
->>>>>>> ba96e6915236f6d3ec5f95840650ef0d94946b70
                             )}
                           </small>
                           {installment.xeroInvoiceNumber || overdueLabel(installment, deal) ? (
@@ -1189,7 +1173,6 @@ export default function CollectiveCrmView() {
                 </div>
 
                 <div className="field wide">
-<<<<<<< HEAD
                   <label htmlFor="collectivePaymentTerm">Payment schedule</label>
                   <div className="schedule-defaults">
                     <label className="schedule-default">
@@ -1306,57 +1289,6 @@ export default function CollectiveCrmView() {
                     Enter an amount or a percentage of the deal — either fills in the other. Set
                     terms per month where they differ, and pick an exact due date where one has been
                     agreed; a blank date follows the terms.
-=======
-                  <label>Payment schedule</label>
-                  <div className="collective-payment-grid">
-                    {months.map((month, index) => {
-                      const hasAmount = Number(form.monthValues[index]) > 0;
-                      return (
-                        <label key={month}>
-                          <span>{month}</span>
-                          <input
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            placeholder="0"
-                            value={form.monthValues[index]}
-                            onChange={(event) => {
-                              const next = [...form.monthValues];
-                              next[index] = event.target.value;
-                              setForm({ ...form, monthValues: next });
-                            }}
-                          />
-                          {/*
-                            Each month invoices separately, so each one carries its
-                            own terms — August upfront and November on 30 days is a
-                            normal schedule, not an exception.
-                          */}
-                          {hasAmount ? (
-                            <select
-                              className="compact-select month-term"
-                              aria-label={`${month} payment terms`}
-                              value={form.monthTerms[index] || form.paymentTerm}
-                              onChange={(event) => {
-                                const next = [...form.monthTerms];
-                                next[index] = event.target.value;
-                                setForm({ ...form, monthTerms: next });
-                              }}
-                            >
-                              {paymentTerms.map((term) => (
-                                <option key={term.value} value={term.value}>
-                                  {term.label}
-                                </option>
-                              ))}
-                            </select>
-                          ) : null}
-                        </label>
-                      );
-                    })}
-                  </div>
-                  <small className="field-hint">
-                    Set terms per month where they differ — anything left alone follows the deal&rsquo;s
-                    default terms above.
->>>>>>> ba96e6915236f6d3ec5f95840650ef0d94946b70
                   </small>
                   <small className={`allocation-note is-${allocation.tone}`} data-allocation={allocation.tone}>
                     {allocation.message}
