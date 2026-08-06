@@ -143,21 +143,21 @@ export default function PermissionsView() {
           <table>
             <thead>
               <tr>
-                <th>Name</th>
-                <th>Email</th>
-                <th>Requested role</th>
-                <th>Assign role</th>
-                <th>Action</th>
+                <th className="text-left">Name</th>
+                <th className="text-left">Email</th>
+                <th className="text-left">Requested role</th>
+                <th className="text-left">Assign role</th>
+                <th className="text-left">Action</th>
               </tr>
             </thead>
             <tbody>
               {pendingAccounts.length ? (
                 pendingAccounts.map((account) => (
                   <tr key={account.id}>
-                    <td>{account.name}</td>
-                    <td>{account.email}</td>
-                    <td>{roleLabel(account.role)}</td>
-                    <td>
+                    <td className="text-left">{account.name}</td>
+                    <td className="text-left">{account.email}</td>
+                    <td className="text-left">{roleLabel(account.role)}</td>
+                    <td className="text-left">
                       <select
                         className="compact-select"
                         value={roleFor(account.id, account.role)}
@@ -173,7 +173,7 @@ export default function PermissionsView() {
                         ))}
                       </select>
                     </td>
-                    <td>
+                    <td className="text-left">
                       {canAdminister ? (
                         <div className="row-actions">
                           <button
@@ -227,11 +227,11 @@ export default function PermissionsView() {
           <table>
             <thead>
               <tr>
-                <th>Name</th>
-                <th>Email</th>
-                <th>Role</th>
-                <th>Status</th>
-                <th>Action</th>
+                <th className="text-left">Name</th>
+                <th className="text-left">Email</th>
+                <th className="text-left">Role</th>
+                <th className="text-left">Status</th>
+                <th className="text-left">Action</th>
               </tr>
             </thead>
             <tbody>
@@ -239,9 +239,9 @@ export default function PermissionsView() {
                 const isSelf = account.id === currentUser?.id;
                 return (
                   <tr key={account.id}>
-                    <td>{account.name}</td>
-                    <td>{account.email}</td>
-                    <td>
+                    <td className="text-left">{account.name}</td>
+                    <td className="text-left">{account.email}</td>
+                    <td className="text-left">
                       <select
                         className="compact-select"
                         value={account.role}
@@ -257,10 +257,10 @@ export default function PermissionsView() {
                         ))}
                       </select>
                     </td>
-                    <td>
+                    <td className="text-left">
                       <span className={statusPillClass(account.status)}>{account.status}</span>
                     </td>
-                    <td>
+                    <td className="text-left">
                       {canAdminister && !isSelf ? (
                         account.status === "active" ? (
                           <button

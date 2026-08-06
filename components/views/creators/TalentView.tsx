@@ -722,20 +722,20 @@ export default function TalentView() {
               <table>
                 <thead>
                   <tr>
-                    <th>Talent</th>
-                    <th>Email</th>
-                    <th>Xero contact</th>
-                    <th>Manager</th>
-                    <th>Submitted revenue</th>
-                    <th>Transfer roster to</th>
-                    <th>Remove</th>
+                    <th className="text-left">Talent</th>
+                    <th className="text-left">Email</th>
+                    <th className="text-left">Xero contact</th>
+                    <th className="text-left">Manager</th>
+                    <th className="text-right">Submitted revenue</th>
+                    <th className="text-left">Transfer roster to</th>
+                    <th className="text-center">Remove</th>
                   </tr>
                 </thead>
                 <tbody>
                   {rows.length ? (
                     rows.map((row) => (
                       <tr key={row.key} className={activeTalentKey === row.key ? "selected-row" : ""}>
-                        <td>
+                        <td className="text-left">
                           <button
                             className="table-link"
                             data-talent-detail={row.key}
@@ -744,7 +744,7 @@ export default function TalentView() {
                             {row.talentName}
                           </button>
                         </td>
-                        <td>
+                        <td className="text-left">
                           <input
                             key={`${row.id}-${row.email}`}
                             className="mini-input"
@@ -755,37 +755,39 @@ export default function TalentView() {
                             onBlur={(event) => handleEmailSave(row, event.target.value)}
                           />
                         </td>
-                        <td>
-                          <input
-                            key={`${row.id}-${row.xeroContactId}`}
-                            className="mini-input"
-                            list="talent-xero-contacts"
-                            defaultValue={row.xeroContactName}
-                            placeholder={xeroContacts.length ? "Link a Xero contact" : "Xero not connected"}
-                            disabled={!xeroContacts.length}
-                            aria-label={`${row.talentName} Xero contact`}
-                            onBlur={(event) => handleXeroLink(row, event.target.value)}
-                          />
-                          {row.xeroContactId ? (
-                            <small className="field-hint">
-                              {row.xeroBankAccount ? `Bank ${row.xeroBankAccount}` : "No bank details in Xero"}
-                            </small>
-                          ) : null}
-                          {/* A new talent is pushed to Xero on save; say so, and say
-                              plainly when it did not get there. */}
-                          {row.xeroSyncStatus ? (
-                            <small
-                              className={`field-hint ${
-                                row.xeroSyncStatus.startsWith("Not sent") ? "contact-warning" : "contact-matched"
-                              }`}
-                            >
-                              {row.xeroSyncStatus}
-                            </small>
-                          ) : null}
+                        <td className="text-left">
+                          <div className="table-cell-stack">
+                            <input
+                              key={`${row.id}-${row.xeroContactId}`}
+                              className="mini-input"
+                              list="talent-xero-contacts"
+                              defaultValue={row.xeroContactName}
+                              placeholder={xeroContacts.length ? "Link a Xero contact" : "Xero not connected"}
+                              disabled={!xeroContacts.length}
+                              aria-label={`${row.talentName} Xero contact`}
+                              onBlur={(event) => handleXeroLink(row, event.target.value)}
+                            />
+                            {row.xeroContactId ? (
+                              <small className="field-hint">
+                                {row.xeroBankAccount ? `Bank ${row.xeroBankAccount}` : "No bank details in Xero"}
+                              </small>
+                            ) : null}
+                            {/* A new talent is pushed to Xero on save; say so, and say
+                                plainly when it did not get there. */}
+                            {row.xeroSyncStatus ? (
+                              <small
+                                className={`field-hint ${
+                                  row.xeroSyncStatus.startsWith("Not sent") ? "contact-warning" : "contact-matched"
+                                }`}
+                              >
+                                {row.xeroSyncStatus}
+                              </small>
+                            ) : null}
+                          </div>
                         </td>
-                        <td>{managerName(row.managerId)}</td>
-                        <td>{money(row.total)}</td>
-                        <td>
+                        <td className="text-left">{managerName(row.managerId)}</td>
+                        <td className="text-right">{money(row.total)}</td>
+                        <td className="text-left">
                           <select
                             className="compact-select"
                             aria-label={`Transfer ${row.talentName} to another manager`}
@@ -799,7 +801,7 @@ export default function TalentView() {
                             ))}
                           </select>
                         </td>
-                        <td>
+                        <td className="text-center">
                           <button
                             className="secondary danger-button"
                             type="button"
