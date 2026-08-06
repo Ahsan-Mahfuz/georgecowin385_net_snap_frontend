@@ -8,9 +8,10 @@ import { useGetTalentsQuery, useSendTalentReportMutation } from "@/redux/api/tal
 import { useGetDealsQuery } from "@/redux/api/dealApi";
 import { useGetExpensesQuery } from "@/redux/api/expenseApi";
 import { useGetPaymentRunsQuery } from "@/redux/api/paymentRunApi";
+import { useGetProductionRequestsQuery } from "@/redux/api/productionRequestApi";
 import { nextRunDate, runDatesFrom } from "@/lib/paymentRuns";
 import { toDeal, talentNamesForManager, refId } from "@/lib/adapters";
-import type { ApiExpense, ApiTalent } from "@/redux/api/types";
+import type { ApiExpense, ApiTalent, ApiProductionRequest } from "@/redux/api/types";
 import { useSelector } from "react-redux";
 import { RootState } from "@/redux/store";
 import { apiErrorMessage, useToast } from "@/components/ui/Toast";
@@ -155,6 +156,7 @@ export default function ReportsView() {
   const { data: dealData = [] } = useGetDealsQuery();
   const { data: expenseData = [] } = useGetExpensesQuery({ kind: "talent" });
   const { data: paymentRuns = [] } = useGetPaymentRunsQuery();
+  const { data: prodData = [] } = useGetProductionRequestsQuery();
   liveUsers = users;
   liveTalents = talentData as ApiTalent[];
   const liveReportDeals = dealData.map(toDeal);
@@ -238,6 +240,16 @@ export default function ReportsView() {
 
     const dealTotal = paidDeals.reduce((total, deal) => total + talentPayableAmount(deal), 0);
     const expenseTotal = paidDeals.reduce((total, deal) => total + dealTalentExpenseTotal(deal.id), 0);
+    const prodChargebackTotal = selected
+      ? (prodData as ApiProductionRequest[])
+          .filter(
+            (p) =>
+              p.talentName.trim().toLowerCase() === selected.talentName.trim().toLowerCase() &&
+              (p.status === "scheduled" || p.status === "completed") &&
+              p.chargebackRequestedAt,
+          )
+          .reduce((t, p) => t + Number(p.total || 0), 0)
+      : 0;
 
     return (
       <>
@@ -323,7 +335,7 @@ export default function ReportsView() {
                   ? `Ready to send to ${selectedEmail}.`
                   : "Add this talent's email in the Talent tab before sending."}{" "}
                 Amounts are talent payable: 80% of each deal plus 100% of approved job expenses,
-                with invoice references and attachments included.
+                less production chargebacks, with invoice references and attachments included.
               </p>
             </div>
           </div>
@@ -334,12 +346,18 @@ export default function ReportsView() {
             </div>
             <div className="earning">
               <span>Talent payable</span>
-              <strong>{money(dealTotal)}</strong>
+              <strong>{money(Math.max(0, dealTotal + expenseTotal - prodChargebackTotal))}</strong>
             </div>
             <div className="earning">
               <span>Expenses included</span>
               <strong>{money(expenseTotal)}</strong>
             </div>
+            {prodChargebackTotal > 0 ? (
+              <div className="earning">
+                <span>Production chargebacks</span>
+                <strong style={{ color: "#c53030" }}>-{money(prodChargebackTotal)}</strong>
+              </div>
+            ) : null}
           </div>
           <div className="table-wrap">
             {paidDeals.length ? (

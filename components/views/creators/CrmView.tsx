@@ -123,7 +123,7 @@ export default function CrmView() {
     inboundOrOutbound: "Inbound" as "Inbound" | "Outbound",
     stage: "Conversation",
     amount: "",
-    monthIndex: 0,
+    monthIndex: new Date().getMonth(),
     useUSD: false,
     paymentTerms: "Upfront",
     ownTimeDays: "",
@@ -492,6 +492,11 @@ export default function CrmView() {
                         <span className="crm-card-brand">{d.companyName || d.company || "No brand"}</span>
                         <span>{d.campaignName || "No campaign"} · {money(dealTotal(d))}</span>
                         <small>{managerName(d.managerId)}</small>
+                        {d.xeroDueDate ? (
+                          <small style={{ display: "block", color: "#4a5568", marginTop: "2px" }}>
+                            Due: {d.xeroDueDate}
+                          </small>
+                        ) : null}
                         {/* Approval only becomes relevant at Contract Signed — a deal
                             still in conversation is nobody's decision yet. */}
                         {CONTRACT_REQUIRED_STAGES.includes(stageOf(d)) &&
@@ -583,15 +588,6 @@ export default function CrmView() {
                 <div className="field">
                   <label htmlFor="crmAmount">Deal amount</label>
                   <input id="crmAmount" type="number" min="0" step="0.01" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} placeholder="0.00" />
-                </div>
-
-                <div className="field">
-                  <label htmlFor="crmMonth">Revenue month</label>
-                  <select id="crmMonth" value={form.monthIndex} onChange={(e) => setForm({ ...form, monthIndex: Number(e.target.value) })}>
-                    {months.map((month, index) => (
-                      <option key={month} value={index}>{month}</option>
-                    ))}
-                  </select>
                 </div>
 
                 <div className="field" style={{ display: "flex", flexDirection: "column", justifyContent: "center" }}>

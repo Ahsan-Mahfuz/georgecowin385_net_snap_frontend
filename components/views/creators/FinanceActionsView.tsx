@@ -130,6 +130,12 @@ export default function FinanceActionsView() {
           <span>Xero</span>
           <span>{deal.xeroInvoiceNumber || deal.xeroInvoiceId || "No invoice yet"}</span>
         </div>
+        {deal.xeroDueDate ? (
+          <div className="deal-line muted">
+            <span>Due Date</span>
+            <span>{deal.xeroDueDate}</span>
+          </div>
+        ) : null}
       </button>
       <div className="deal-actions">{actions}</div>
     </article>

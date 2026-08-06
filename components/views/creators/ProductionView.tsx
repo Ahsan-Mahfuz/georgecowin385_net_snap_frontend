@@ -144,12 +144,18 @@ export default function ProductionView() {
    * email); admin and operations see all of them so they can chase; the rest of
    * the team is not nagged about a shoot that was never theirs.
    */
-  const seesEveryRejection = ["admin", "operations"].includes(user?.role || "");
+  const [showRejectedHistory, setShowRejectedHistory] = useState(false);
+
+  /*
+   * A rejection is the requesting manager's news. They see it (and get it by
+   * email); admin and operations see active ones; dismissed ones are hidden.
+   */
   const rejectionNotices = requests.filter((r) => {
     if (r.status !== "rejected" || r.rejectionDismissedAt) return false;
-    if (seesEveryRejection) return true;
-    return refId(r.submittedBy) === user?.id || refId(r.manager) === user?.id;
+    return refId(r.submittedBy) === user?.id || refId(r.manager) === user?.id || user?.role === "admin";
   });
+
+  const displayRequests = requests.filter((r) => showRejectedHistory || r.status !== "rejected");
 
   return (
     <>
@@ -365,42 +371,67 @@ export default function ProductionView() {
             still see everything so they can chase.
             The same rejection is emailed to them; see notifyProductionRejected.
           */}
-          {rejectionNotices.map((r) => (
-              <div
-                key={r._id}
-                className="notice rejection-notice"
-                style={{ borderLeft: "4px solid #e53e3e", background: "#fff5f5" }}
+          {rejectionNotices.length > 1 ? (
+            <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "8px" }}>
+              <button
+                className="secondary mini-button"
+                type="button"
+                onClick={async () => {
+                  for (const r of rejectionNotices) {
+                    await dismissRejection(r._id).unwrap().catch(() => null);
+                  }
+                  toast.success("All rejection notices dismissed.");
+                }}
               >
-                <span>
-                  <strong>Production Rejected ({r.talentName}):</strong>{" "}
-                  {r.rejectionReason || "No rejection reason specified."} (Shoot Date:{" "}
-                  {displayDate(r.shootDate)})
-                </span>
-                <button
-                  className="ghost dismiss-notice"
-                  type="button"
-                  aria-label={`Dismiss the rejection notice for ${r.talentName}`}
-                  onClick={async () => {
-                    try {
-                      await dismissRejection(r._id).unwrap();
-                    } catch (err) {
-                      toast.error(apiErrorMessage(err, "Could not dismiss that notice."));
-                    }
-                  }}
-                >
-                  Dismiss
-                </button>
-              </div>
-            ))}
+                Dismiss All Rejection Notices
+              </button>
+            </div>
+          ) : null}
+          {rejectionNotices.map((r) => (
+            <div
+              key={r._id}
+              className="notice rejection-notice"
+              style={{ borderLeft: "4px solid #e53e3e", background: "#fff5f5" }}
+            >
+              <span>
+                <strong>Production Rejected ({r.talentName}):</strong>{" "}
+                {r.rejectionReason || "No rejection reason specified."} (Shoot Date:{" "}
+                {displayDate(r.shootDate)})
+              </span>
+              <button
+                className="ghost dismiss-notice"
+                type="button"
+                aria-label={`Dismiss the rejection notice for ${r.talentName}`}
+                onClick={async () => {
+                  try {
+                    await dismissRejection(r._id).unwrap();
+                  } catch (err) {
+                    toast.error(apiErrorMessage(err, "Could not dismiss that notice."));
+                  }
+                }}
+              >
+                Dismiss
+              </button>
+            </div>
+          ))}
 
           <section className="section">
             <div className="section-head">
               <h2>Production requests</h2>
-              <span className="pill pipeline">{pendingRequests.length} pending</span>
+              <div className="section-actions">
+                <span className="pill pipeline">{pendingRequests.length} pending</span>
+                <button
+                  className="ghost"
+                  type="button"
+                  onClick={() => setShowRejectedHistory((prev) => !prev)}
+                >
+                  {showRejectedHistory ? "Hide rejected" : "Show rejected history"}
+                </button>
+              </div>
             </div>
             <div className="section-body manager-list">
-              {requests.length ? (
-                requests.map((r) => (
+              {displayRequests.length ? (
+                displayRequests.map((r) => (
                   <article className="deal" key={r._id}>
                     <div className="deal-line">
                       <strong>{r.talentName}</strong>

@@ -94,9 +94,9 @@ export function CreatorsShell({ children }: { children: React.ReactNode }) {
     () =>
       deals.filter(
         (d) =>
-          // Waiting for a draft, or a draft waiting to be sent/reconciled.
+          // Only count items requiring active Finance action: pending draft creation or pending talent payout
           (d.stage === "To Be Invoiced" && !d.xeroInvoiceId) ||
-          (Boolean(d.xeroInvoiceId) && d.financeStatus !== "Paid") ||
+          d.financeStatus === "Xero draft failed" ||
           (d.financeStatus === "Paid" && d.remittanceStatus !== "Paid"),
       ).length,
     [deals],

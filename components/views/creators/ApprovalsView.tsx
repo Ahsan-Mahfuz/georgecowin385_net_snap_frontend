@@ -84,9 +84,10 @@ export default function ApprovalsView() {
    */
   const canDecideOn = (item: ApiApproval): boolean => {
     if (!user) return false;
+    if (item.approver && refId(item.approver) === user.id) return true;
+    if (user.role === "admin" || user.role === "operations") return true;
     if (refId(item.submittedBy) === user.id) return false;
-    if (item.approver) return refId(item.approver) === user.id;
-    return user.role === "admin" || user.role === "operations";
+    return false;
   };
 
   const onApprove = (id: string) => approve(id);

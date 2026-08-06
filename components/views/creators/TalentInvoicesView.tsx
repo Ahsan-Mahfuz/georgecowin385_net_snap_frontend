@@ -13,9 +13,10 @@ import {
 } from "@/redux/api/dealApi";
 import { useGetExpensesQuery } from "@/redux/api/expenseApi";
 import { useGetPaymentRunsQuery } from "@/redux/api/paymentRunApi";
+import { useGetProductionRequestsQuery } from "@/redux/api/productionRequestApi";
 import { nextRunDate, runDatesFrom } from "@/lib/paymentRuns";
 import { refId } from "@/lib/adapters";
-import type { ApiDeal, ApiExpense } from "@/redux/api/types";
+import type { ApiDeal, ApiExpense, ApiProductionRequest } from "@/redux/api/types";
 import { useConfirm } from "@/components/ui/ConfirmProvider";
 import { apiErrorMessage, useToast } from "@/components/ui/Toast";
 
@@ -83,6 +84,7 @@ interface TalentInvoice {
   totalDealShare: number;
   totalExpenses: number;
   totalAlreadyPaid: number;
+  totalProductionDeducted: number;
   total: number;
   details: {
     invoiceName?: string;
@@ -124,15 +126,11 @@ function paymentRunOf(deal: ApiDeal, runDates: string[]): string {
 function buildInvoices(
   deals: ApiDeal[],
   expenses: ApiExpense[],
+  prodRequests: ApiProductionRequest[],
   runDates: string[],
 ): TalentInvoice[] {
   // Only deals the brand has paid are ready for talent remittance.
   const eligible = deals.filter((d) => d.financeStatus === "Paid");
-  /*
-   * One remittance per talent **per month**. Grouping on the talent alone swept
-   * every paid deal they had ever done onto a single invoice, so August's run
-   * showed October's money — which is what the client saw.
-   */
   const groups = new Map<string, ApiDeal[]>();
   for (const deal of eligible) {
     const key = `${talentKey(refId(deal.manager), deal.talentName)}::${dealMonthIndex(deal)}`;
@@ -147,18 +145,11 @@ function buildInvoices(
     const monthIndex = dealMonthIndex(groupDeals[0]);
 
     const billId = groupDeals.find((d) => d.xeroBillId)?.xeroBillId || "";
-    /*
-     * Talent expenses are reimbursed in full. Only those not already paid on a
-     * different bill count, so a run never pays the same receipt twice; each is
-     * shown against the job it was incurred on, and anything without a job sits
-     * on the first line.
-     */
     const dealIdSet = new Set(groupDeals.map((d) => d._id));
     const talentExpenses = expenses.filter(
       (e) =>
         e.kind === "talent" &&
         e.talentName === talentName &&
-        // …and belonging to this run's month, like the deals themselves.
         Number(e.monthIndex || 0) === monthIndex &&
         (!e.xeroBillId || e.xeroBillId === billId),
     );
@@ -189,6 +180,16 @@ function buildInvoices(
       };
     });
 
+    // Production chargebacks for this talent
+    const talentProds = prodRequests.filter(
+      (p) =>
+        p.talentName.trim().toLowerCase() === talentName.trim().toLowerCase() &&
+        (p.status === "scheduled" || p.status === "completed") &&
+        p.chargebackRequestedAt &&
+        (!p.xeroBillId || p.xeroBillId === billId),
+    );
+    const totalProductionDeducted = talentProds.reduce((t, p) => t + Number(p.total || 0), 0);
+
     const allPaid = groupDeals.every((d) => d.remittanceStatus === "Paid");
     const anySent = groupDeals.some((d) => d.remittanceStatus === "Sent" || d.remittanceStatus === "Paid");
     const latestPaidAt = groupDeals
@@ -206,7 +207,6 @@ function buildInvoices(
       id: `talent-invoice-${key}`,
       managerId,
       talentName,
-      // The talent-only key, so the Talent filter still matches every month.
       talentKey: talentKey(managerId, talentName),
       monthIndex,
       paymentRunDate: paymentRunOf(groupDeals[0], runDates),
@@ -219,7 +219,8 @@ function buildInvoices(
       totalDealShare,
       totalExpenses,
       totalAlreadyPaid,
-      total: grand - totalAlreadyPaid,
+      totalProductionDeducted,
+      total: Math.max(0, grand - totalAlreadyPaid - totalProductionDeducted),
       details: { invoiceName: talentName, invoiceEmail: deal0Email(groupDeals) },
     });
   }
@@ -273,6 +274,7 @@ export default function TalentInvoicesView() {
   const { data: dealData = [], isLoading } = useGetDealsQuery();
   const { data: expenseData = [] } = useGetExpensesQuery();
   const { data: paymentRuns = [] } = useGetPaymentRunsQuery();
+  const { data: prodData = [] } = useGetProductionRequestsQuery();
   const [sendRemittance] = useSendDealRemittanceMutation();
   const [markTalentPaid] = useMarkDealTalentPaidMutation();
   const [syncTalentBill, { isLoading: billing }] = useSyncTalentBillMutation();
@@ -287,7 +289,7 @@ export default function TalentInvoicesView() {
   const [endDate, setEndDate] = useState<string>("2026-12-31");
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<string | null>(null);
 
-  const allInvoices = buildInvoices(dealData, expenseData, runDatesFrom(paymentRuns));
+  const allInvoices = buildInvoices(dealData, expenseData, prodData, runDatesFrom(paymentRuns));
   const talentRows: TalentRow[] = talentData
     .map((t) => {
       const managerId = refId(t.manager);
@@ -709,6 +711,12 @@ function TalentInvoiceDetail({
             <div>
               <span>Already paid</span>
               <strong>{money(invoice.totalAlreadyPaid)}</strong>
+            </div>
+          ) : null}
+          {invoice.totalProductionDeducted ? (
+            <div>
+              <span>Production chargebacks</span>
+              <strong style={{ color: "#c53030" }}>-{money(invoice.totalProductionDeducted)}</strong>
             </div>
           ) : null}
           <div className="invoice-grand-total">

@@ -137,15 +137,49 @@ export default function CollectiveMonthsView() {
         <div className="section-body">
           {stageTallies.length ? (
             <div className="stage-tally-grid">
-              {stageTallies.map((tally) => (
-                <div className="stage-tally" key={tally.stage}>
-                  <span>{tally.stage}</span>
-                  <strong>{money(tally.total)}</strong>
-                  <small>
-                    {tally.count} deal{tally.count === 1 ? "" : "s"}
-                  </small>
-                </div>
-              ))}
+              {stageTallies.map((tally) => {
+                const stageDeals = (selectedMonth === null ? deals : monthDeals).filter(
+                  (d) => d.stage.toLowerCase() === tally.stage.toLowerCase(),
+                );
+                return (
+                  <div className="stage-tally" key={tally.stage}>
+                    <div style={{ marginBottom: "8px" }}>
+                      <span>{tally.stage}</span>
+                      <strong>{money(tally.total)}</strong>
+                      <small>
+                        {tally.count} deal{tally.count === 1 ? "" : "s"}
+                      </small>
+                    </div>
+                    {stageDeals.length > 0 ? (
+                      <div className="manager-list" style={{ marginTop: "8px", gap: "6px" }}>
+                        {stageDeals.map((deal) => (
+                          <button
+                            key={deal.id}
+                            className="deal-card mini-card"
+                            type="button"
+                            onClick={() => setSelectedDealId(deal.id)}
+                            style={{ padding: "8px", fontSize: "12px", textAlign: "left" }}
+                          >
+                            <div>
+                              <strong>{deal.company}</strong>
+                              <small style={{ display: "block", color: "#666" }}>
+                                {deal.dealName} · {collectiveUserName(deal.ownerId)}
+                              </small>
+                            </div>
+                            <strong>
+                              {money(
+                                selectedMonth !== null
+                                  ? Number((deal.monthValues || [])[selectedMonth] || 0)
+                                  : (deal.monthValues || []).reduce((t, v) => t + Number(v || 0), 0),
+                              )}
+                            </strong>
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
             </div>
           ) : (
             <div className="notice">No deals to break down yet.</div>

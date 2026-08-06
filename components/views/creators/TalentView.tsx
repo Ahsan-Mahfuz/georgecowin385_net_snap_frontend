@@ -579,7 +579,15 @@ export default function TalentView() {
    * rather than being retyped here.
    */
   const handleXeroLink = async (row: RosterRow, name: string) => {
-    const match = xeroContacts.find((c) => c.name.toLowerCase() === name.trim().toLowerCase());
+    const trimmed = name.trim().toLowerCase();
+    const match =
+      xeroContacts.find((c) => c.contactId === row.xeroContactId) ||
+      xeroContacts.find((c) => c.name.toLowerCase() === trimmed) ||
+      xeroContacts.find(
+        (c) =>
+          c.name.toLowerCase().includes(trimmed) || trimmed.includes(c.name.toLowerCase()),
+      );
+
     if (!name.trim()) {
       if (!row.xeroContactId) return;
       await updateTalent({
