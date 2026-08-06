@@ -11,12 +11,16 @@ import {
   useSetUserRoleMutation,
   useSetUserLineManagerMutation,
 } from "@/redux/api/userApi";
+import { useGetSettingsQuery, useUpdateSettingsMutation } from "@/redux/api/settingsApi";
 import { roleLabel, type Profile, type Role } from "@/lib/mock";
-import { refId } from "@/lib/adapters";
+import { refId, TALENT_MANAGER_ROLES } from "@/lib/adapters";
 import { useConfirm } from "@/components/ui/ConfirmProvider";
 import { apiErrorMessage, useToast } from "@/components/ui/Toast";
 
 const assignableRoles: Role[] = ["admin", "finance", "operations", "production", "manager"];
+
+/** Sentinel stored in approvalRoutes meaning "an admin, whoever that is". */
+const ROUTE_ADMIN = "admin";
 
 function statusPillClass(status: string): string {
   if (status === "active") return "status-pill status-active";
@@ -38,14 +42,36 @@ export default function PermissionsView() {
 
   // Live account directory from the backend (Creators portal only).
   const { data: creatorAccounts = [], isLoading } = useGetUsersQuery({ portal: "creators" });
+  const { data: settings } = useGetSettingsQuery();
   const [approveUser] = useApproveUserMutation();
   const [rejectUser] = useRejectUserMutation();
   const [setUserStatus] = useSetUserStatusMutation();
   const [setUserRole] = useSetUserRoleMutation();
   const [setUserLineManager, { isLoading: savingLine }] = useSetUserLineManagerMutation();
+  const [updateSettings] = useUpdateSettingsMutation();
   const [lineForm, setLineForm] = useState({ memberId: "", lineManagerId: "" });
   const confirm = useConfirm();
   const toast = useToast();
+
+  /*
+   * Which row is mid-request. Every action on this screen is one row's action,
+   * so a single "saving" flag would grey out the whole table — the key is
+   * `${action}:${userId}` and only that button shows a spinner.
+   */
+  const [busy, setBusy] = useState<Record<string, boolean>>({});
+  const isBusy = (key: string) => Boolean(busy[key]);
+  const runRow = async (key: string, action: () => Promise<unknown>) => {
+    setBusy((b) => ({ ...b, [key]: true }));
+    try {
+      await action();
+    } finally {
+      setBusy((b) => {
+        const next = { ...b };
+        delete next[key];
+        return next;
+      });
+    }
+  };
 
   const pendingAccounts = creatorAccounts.filter((a) => a.status === "pending");
   const activeAndDisabled = creatorAccounts.filter((a) => a.status !== "pending");
@@ -54,29 +80,85 @@ export default function PermissionsView() {
   const [roleChoice, setRoleChoice] = useState<Record<string, Role>>({});
   const roleFor = (id: string, fallback: Role): Role => roleChoice[id] ?? fallback;
 
-  // Live managers (for the lower routing/delegation placeholder sections).
-  const managerUsers: Profile[] = activeAndDisabled
-    .filter((a) => a.role === "manager" && a.status === "active")
-    .map((a) => ({
-      id: a.id,
-      name: a.name,
-      role: a.role,
-      email: a.email,
-      lineManagerId: refId(a.lineManager || undefined) || undefined,
-    }));
-  const teamMembers: Profile[] = managerUsers;
-  const approvers: Profile[] = managerUsers;
+  const asProfile = (a: (typeof creatorAccounts)[number]): Profile => ({
+    id: a.id,
+    name: a.name,
+    role: a.role,
+    email: a.email,
+    lineManagerId: refId(a.lineManager || undefined) || undefined,
+  });
+
+  /*
+   * Everyone still active. Reporting lines used to be offered only for the
+   * `manager` role, which meant a talent manager sitting on the admin role —
+   * how the client runs the portal — could not be given a line manager at all,
+   * and so their signed deals had nobody to route to.
+   */
+  const activeUsers: Profile[] = activeAndDisabled
+    .filter((a) => a.status === "active")
+    .map(asProfile);
+
+  // The people who carry deals, and therefore have deals to route.
+  const managerUsers: Profile[] = activeUsers.filter((u) =>
+    (TALENT_MANAGER_ROLES as readonly string[]).includes(u.role),
+  );
+  const teamMembers: Profile[] = activeUsers;
+  const approvers: Profile[] = activeUsers;
 
   // Live reporting lines, read straight off the accounts.
-  const lineReportRows = managerUsers
+  const lineReportRows = activeUsers
     .filter((m) => m.lineManagerId)
     .map((m) => ({ reportManagerId: m.id, lineManagerId: m.lineManagerId as string }));
-  const automaticRows: { lineManagerId: string; reportManagerId: string }[] = [];
+  /*
+   * Delegation that already exists by virtue of the reporting lines above — a
+   * line manager can act for the people who report to them. Showing it here
+   * saves anyone hunting for a switch that was never needed.
+   */
+  const automaticRows = lineReportRows.map((row) => ({
+    lineManagerId: row.lineManagerId,
+    reportManagerId: row.reportManagerId,
+  }));
   const explicitRows: { delegatorManagerId: string; targetManagerId: string }[] = [];
 
   const managerName = (id: string): string => {
-    if (id === "admin") return "Admin";
-    return teamMembers.find((user) => user.id === id)?.name || "Unassigned";
+    if (id === ROUTE_ADMIN) return "Admin";
+    return activeUsers.find((user) => user.id === id)?.name || "Unassigned";
+  };
+
+  // ---------------------------------------------------------------------------
+  // Deal approval routing
+  // ---------------------------------------------------------------------------
+  const approvalRoutes = settings?.approvalRoutes || {};
+
+  /**
+   * Where a Contract Signed deal from this manager will actually land, said in
+   * words. This table used to show "Admin" for everybody whatever was set,
+   * which is what the client read as "all talent managers are set to admin" —
+   * and then no deal arrived, because nothing on this screen was ever saved.
+   */
+  const routeDestination = (manager: Profile): string => {
+    const route = approvalRoutes[manager.id] || "";
+    if (route === ROUTE_ADMIN) return "An admin";
+    if (route) return `${managerName(route)} (set here)`;
+    if (manager.lineManagerId) return `${managerName(manager.lineManagerId)} (line manager)`;
+    return "An admin (no line manager set)";
+  };
+
+  const handleSetRoute = async (manager: Profile, route: string) => {
+    await runRow(`route:${manager.id}`, async () => {
+      try {
+        await updateSettings({ approvalRoutes: { [manager.id]: route } }).unwrap();
+        toast.success(
+          route === ROUTE_ADMIN
+            ? `${manager.name}'s deals now go to an admin.`
+            : route
+              ? `${manager.name}'s deals now go to ${managerName(route)}.`
+              : `${manager.name}'s deals now follow their line manager.`,
+        );
+      } catch (err) {
+        toast.error(apiErrorMessage(err, "Could not save that approval route."));
+      }
+    });
   };
 
   const handleSetLineManager = async (event: React.FormEvent) => {
@@ -87,7 +169,7 @@ export default function PermissionsView() {
       await setUserLineManager({ id: memberId, lineManager: lineForm.lineManagerId }).unwrap();
       toast.success(
         lineForm.lineManagerId
-          ? `${managerName(memberId)} now reports to ${managerName(lineForm.lineManagerId)}.`
+          ? `${managerName(memberId)} now reports to ${managerName(lineForm.lineManagerId)}. Their deals awaiting approval have moved across.`
           : `Cleared ${managerName(memberId)}'s reporting line.`,
       );
       setLineForm({ memberId: "", lineManagerId: "" });
@@ -109,12 +191,84 @@ export default function PermissionsView() {
       ),
     });
     if (!ok) return;
-    try {
-      await setUserLineManager({ id: memberId, lineManager: "" }).unwrap();
-      toast.success("Reporting line removed.");
-    } catch (err) {
-      toast.error(apiErrorMessage(err, "Could not remove that reporting line."));
+    await runRow(`line:${memberId}`, async () => {
+      try {
+        await setUserLineManager({ id: memberId, lineManager: "" }).unwrap();
+        toast.success("Reporting line removed.");
+      } catch (err) {
+        toast.error(apiErrorMessage(err, "Could not remove that reporting line."));
+      }
+    });
+  };
+
+  const handleApproveUser = async (id: string, name: string, role: Role) => {
+    await runRow(`approve:${id}`, async () => {
+      try {
+        await approveUser({ id, role }).unwrap();
+        toast.success(`${name} approved as ${roleLabel(role)} and can now sign in.`);
+      } catch (err) {
+        toast.error(apiErrorMessage(err, "Could not approve that account."));
+      }
+    });
+  };
+
+  const handleRejectUser = async (id: string, name: string) => {
+    const ok = await confirm({
+      tone: "danger",
+      title: "Reject this sign-up?",
+      confirmLabel: "Reject",
+      message: (
+        <>
+          <strong>{name}</strong>&apos;s request will be removed. They can sign up again later with
+          the same email.
+        </>
+      ),
+    });
+    if (!ok) return;
+    await runRow(`reject:${id}`, async () => {
+      try {
+        await rejectUser(id).unwrap();
+        toast.success(`${name}'s request was rejected.`);
+      } catch (err) {
+        toast.error(apiErrorMessage(err, "Could not reject that request."));
+      }
+    });
+  };
+
+  const handleSetRole = async (id: string, name: string, role: Role) => {
+    await runRow(`role:${id}`, async () => {
+      try {
+        await setUserRole({ id, role }).unwrap();
+        toast.success(`${name} is now ${roleLabel(role)}.`);
+      } catch (err) {
+        toast.error(apiErrorMessage(err, "Could not change that role."));
+      }
+    });
+  };
+
+  const handleSetStatus = async (id: string, name: string, status: "active" | "disabled") => {
+    if (status === "disabled") {
+      const ok = await confirm({
+        tone: "danger",
+        title: "Disable this account?",
+        confirmLabel: "Disable",
+        message: (
+          <>
+            <strong>{name}</strong> will be signed out and blocked from logging in. Their deals and
+            history stay untouched.
+          </>
+        ),
+      });
+      if (!ok) return;
     }
+    await runRow(`status:${id}`, async () => {
+      try {
+        await setUserStatus({ id, status }).unwrap();
+        toast.success(status === "active" ? `${name} can sign in again.` : `${name} is disabled.`);
+      } catch (err) {
+        toast.error(apiErrorMessage(err, "Could not change that account."));
+      }
+    });
   };
 
   return (
@@ -161,7 +315,7 @@ export default function PermissionsView() {
                       <select
                         className="compact-select"
                         value={roleFor(account.id, account.role)}
-                        disabled={!canAdminister}
+                        disabled={!canAdminister || isBusy(`approve:${account.id}`)}
                         onChange={(e) =>
                           setRoleChoice((prev) => ({ ...prev, [account.id]: e.target.value as Role }))
                         }
@@ -179,18 +333,24 @@ export default function PermissionsView() {
                           <button
                             className="primary small"
                             type="button"
+                            disabled={isBusy(`approve:${account.id}`) || isBusy(`reject:${account.id}`)}
                             onClick={() =>
-                              approveUser({ id: account.id, role: roleFor(account.id, account.role) })
+                              handleApproveUser(
+                                account.id,
+                                account.name,
+                                roleFor(account.id, account.role),
+                              )
                             }
                           >
-                            Approve
+                            {isBusy(`approve:${account.id}`) ? "Approving…" : "Approve"}
                           </button>
                           <button
                             className="secondary danger-button small"
                             type="button"
-                            onClick={() => rejectUser(account.id)}
+                            disabled={isBusy(`approve:${account.id}`) || isBusy(`reject:${account.id}`)}
+                            onClick={() => handleRejectUser(account.id, account.name)}
                           >
-                            Reject
+                            {isBusy(`reject:${account.id}`) ? "Rejecting…" : "Reject"}
                           </button>
                         </div>
                       ) : (
@@ -245,9 +405,9 @@ export default function PermissionsView() {
                       <select
                         className="compact-select"
                         value={account.role}
-                        disabled={!canAdminister || isSelf}
+                        disabled={!canAdminister || isSelf || isBusy(`role:${account.id}`)}
                         onChange={(e) =>
-                          setUserRole({ id: account.id, role: e.target.value as Role })
+                          handleSetRole(account.id, account.name, e.target.value as Role)
                         }
                       >
                         {assignableRoles.map((r) => (
@@ -266,17 +426,19 @@ export default function PermissionsView() {
                           <button
                             className="secondary danger-button small"
                             type="button"
-                            onClick={() => setUserStatus({ id: account.id, status: "disabled" })}
+                            disabled={isBusy(`status:${account.id}`)}
+                            onClick={() => handleSetStatus(account.id, account.name, "disabled")}
                           >
-                            Disable
+                            {isBusy(`status:${account.id}`) ? "Disabling…" : "Disable"}
                           </button>
                         ) : (
                           <button
                             className="primary small"
                             type="button"
-                            onClick={() => setUserStatus({ id: account.id, status: "active" })}
+                            disabled={isBusy(`status:${account.id}`)}
+                            onClick={() => handleSetStatus(account.id, account.name, "active")}
                           >
-                            Enable
+                            {isBusy(`status:${account.id}`) ? "Enabling…" : "Enable"}
                           </button>
                         )
                       ) : (
@@ -299,8 +461,10 @@ export default function PermissionsView() {
         </div>
         <div className="section-body">
           <div className="notice">
-            Set who each manager reports to. A manager sees their own commission sheet plus the
-            commission of everyone reporting to them — nobody else&apos;s.
+            Set who each person reports to. This is also the default approver for their deals: when
+            a deal reaches <b>Contract Signed</b> it goes straight to their line manager&apos;s
+            Approvals tab. A manager sees their own commission sheet plus the commission of everyone
+            reporting to them — nobody else&apos;s.
           </div>
           {canAdminister ? (
             <form className="form-grid" onSubmit={handleSetLineManager}>
@@ -326,11 +490,11 @@ export default function PermissionsView() {
                   onChange={(e) => setLineForm({ ...lineForm, lineManagerId: e.target.value })}
                 >
                   <option value="">Nobody (clear)</option>
-                  {managerUsers
+                  {approvers
                     .filter((m) => m.id !== (lineForm.memberId || teamMembers[0]?.id))
                     .map((manager) => (
                       <option key={manager.id} value={manager.id}>
-                        {manager.name}
+                        {manager.name} - {roleLabel(manager.role)}
                       </option>
                     ))}
                 </select>
@@ -361,9 +525,10 @@ export default function PermissionsView() {
                         <button
                           className="secondary danger-button"
                           type="button"
+                          disabled={isBusy(`line:${row.reportManagerId}`)}
                           onClick={() => handleClearLineManager(row.reportManagerId)}
                         >
-                          Remove
+                          {isBusy(`line:${row.reportManagerId}`) ? "Removing…" : "Remove"}
                         </button>
                       ) : (
                         "View only"
@@ -393,10 +558,19 @@ export default function PermissionsView() {
             section only for extra delegation access across the team.
           </div>
           {canAdminister ? (
-            <form className="form-grid" data-request-delegation-form onSubmit={(e) => e.preventDefault()}>
+            <form
+              className="form-grid"
+              data-request-delegation-form
+              onSubmit={(e) => {
+                e.preventDefault();
+                toast.info(
+                  "Extra delegation is not switched on yet — set the reporting line above and the line manager can already act for their reports.",
+                );
+              }}
+            >
               <div className="field">
                 <label htmlFor="requestDelegatorId">Team member can delegate</label>
-                <select id="requestDelegatorId" name="delegatorManagerId">
+                <select id="requestDelegatorId" name="delegatorManagerId" disabled>
                   {managerUsers.map((manager) => (
                     <option key={manager.id} value={manager.id}>
                       {manager.name}
@@ -406,7 +580,7 @@ export default function PermissionsView() {
               </div>
               <div className="field">
                 <label htmlFor="requestTargetId">To manager</label>
-                <select id="requestTargetId" name="targetManagerId">
+                <select id="requestTargetId" name="targetManagerId" disabled>
                   {managerUsers.map((manager) => (
                     <option key={manager.id} value={manager.id}>
                       {manager.name}
@@ -414,7 +588,9 @@ export default function PermissionsView() {
                   ))}
                 </select>
               </div>
-              <button className="primary wide" type="submit">
+              {/* Deliberately inert: nothing behind this saves yet, and a button
+                  that looks as though it did is worse than one that says so. */}
+              <button className="primary wide" type="submit" disabled>
                 Grant request delegation access
               </button>
             </form>
@@ -436,7 +612,7 @@ export default function PermissionsView() {
                   <td>{managerName(row.lineManagerId)}</td>
                   <td>{managerName(row.reportManagerId)}</td>
                   <td>Automatic line manager access</td>
-                  <td>Managed in Team CRM and report access</td>
+                  <td className="muted">Managed in Team CRM and report access</td>
                 </tr>
               ))}
               {explicitRows.map((row) => (
@@ -476,8 +652,12 @@ export default function PermissionsView() {
         </div>
         <div className="section-body">
           <div className="notice">
-            If no approval route is set, a deal goes to the manager&apos;s line manager. If they do not have a line
-            manager, it goes to Admin.
+            When a deal reaches <b>Contract Signed</b> it is sent to one person&apos;s Approvals tab.
+            Leave a manager on <b>Use line manager</b> and it follows the reporting line set above;
+            pick somebody here to override that. Only once the deal is approved does it count
+            towards the P&amp;L and that manager&apos;s commission sheet.
+            <br />
+            Changing a route here also moves that manager&apos;s deals that are already waiting.
           </div>
         </div>
         <div className="table-wrap">
@@ -486,29 +666,45 @@ export default function PermissionsView() {
               <tr>
                 <th>Submitting manager</th>
                 <th>Approver</th>
-                <th>Default route</th>
+                <th>Deals currently go to</th>
               </tr>
             </thead>
             <tbody>
-              {managerUsers.map((manager) => (
-                <tr key={manager.id}>
-                  <td>{manager.name}</td>
-                  <td>
-                    <select className="compact-select" data-approval-route={manager.id} disabled={!canAdminister} defaultValue="">
-                      <option value="">Use default</option>
-                      <option value="admin">Admin</option>
-                      {approvers
-                        .filter((approver) => approver.id !== manager.id)
-                        .map((approver) => (
-                          <option key={approver.id} value={approver.id}>
-                            {approver.name} - {roleLabel(approver.role)}
-                          </option>
-                        ))}
-                    </select>
+              {managerUsers.length ? (
+                managerUsers.map((manager) => (
+                  <tr key={manager.id}>
+                    <td>
+                      {manager.name}
+                      <div className="muted">{roleLabel(manager.role)}</div>
+                    </td>
+                    <td>
+                      <select
+                        className="compact-select"
+                        value={approvalRoutes[manager.id] || ""}
+                        disabled={!canAdminister || isBusy(`route:${manager.id}`)}
+                        onChange={(e) => handleSetRoute(manager, e.target.value)}
+                      >
+                        <option value="">Use line manager</option>
+                        <option value={ROUTE_ADMIN}>Admin</option>
+                        {approvers
+                          .filter((approver) => approver.id !== manager.id)
+                          .map((approver) => (
+                            <option key={approver.id} value={approver.id}>
+                              {approver.name} - {roleLabel(approver.role)}
+                            </option>
+                          ))}
+                      </select>
+                    </td>
+                    <td>{isBusy(`route:${manager.id}`) ? "Saving…" : routeDestination(manager)}</td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={3}>
+                    {isLoading ? "Loading…" : "No talent managers yet — approve a sign-up above."}
                   </td>
-                  <td>{managerName("admin")}</td>
                 </tr>
-              ))}
+              )}
             </tbody>
           </table>
         </div>

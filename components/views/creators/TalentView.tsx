@@ -463,6 +463,8 @@ export default function TalentView() {
   const [createTalent, { isLoading: creating }] = useCreateTalentMutation();
   const [updateTalent] = useUpdateTalentMutation();
   const [deleteTalent] = useDeleteTalentMutation();
+  // Which roster row is mid-removal, so only that row's button spins.
+  const [removingId, setRemovingId] = useState<string | null>(null);
   // Empty when Xero is not connected — the column then reads "Xero not connected".
   const { data: xeroContacts = [] } = useGetXeroContactsQuery("creators");
   const [newTalentName, setNewTalentName] = useState("");
@@ -666,12 +668,15 @@ export default function TalentView() {
       ),
     });
     if (!ok) return;
+    setRemovingId(row.id);
     try {
       await deleteTalent(row.id).unwrap();
       toast.success(`${row.talentName} removed from the roster.`);
       if (selectedTalentKey === row.key) setSelectedTalentKey(null);
     } catch (err) {
       toast.error(apiErrorMessage(err, "Could not remove talent."));
+    } finally {
+      setRemovingId(null);
     }
   };
 
@@ -805,9 +810,10 @@ export default function TalentView() {
                           <button
                             className="secondary danger-button"
                             type="button"
+                            disabled={removingId === row.id}
                             onClick={() => handleRemove(row)}
                           >
-                            Remove talent
+                            {removingId === row.id ? "Removing…" : "Remove talent"}
                           </button>
                         </td>
                       </tr>

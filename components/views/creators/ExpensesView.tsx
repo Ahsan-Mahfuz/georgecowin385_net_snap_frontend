@@ -13,6 +13,8 @@ export default function ExpensesView() {
   const { data: expenses = [] } = useGetExpensesQuery({ kind: "general" });
   const [createExpense, { isLoading: saving }] = useCreateExpenseMutation();
   const [deleteExpense] = useDeleteExpenseMutation();
+  // Which expense is mid-delete, so only that card's button spins.
+  const [removingId, setRemovingId] = useState<string | null>(null);
   const confirm = useConfirm();
   const toast = useToast();
 
@@ -66,11 +68,14 @@ export default function ExpensesView() {
       ),
     });
     if (!ok) return;
+    setRemovingId(expense._id);
     try {
       await deleteExpense(expense._id).unwrap();
       toast.success("Expense removed.");
     } catch (err) {
       toast.error(apiErrorMessage(err, "Could not remove that expense."));
+    } finally {
+      setRemovingId(null);
     }
   };
 
@@ -166,7 +171,14 @@ export default function ExpensesView() {
                   <div className="deal-line muted"><span>Month</span><span>{months[expense.monthIndex]}</span></div>
                   <div className="deal-line muted"><span>Note</span><span>{expense.note}</span></div>
                   <div className="deal-actions">
-                    <button className="secondary danger-button small" type="button" onClick={() => handleRemove(expense)}>Remove</button>
+                    <button
+                      className="secondary danger-button small"
+                      type="button"
+                      disabled={removingId === expense._id}
+                      onClick={() => handleRemove(expense)}
+                    >
+                      {removingId === expense._id ? "Removing…" : "Remove"}
+                    </button>
                   </div>
                 </article>
               ))

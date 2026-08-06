@@ -83,6 +83,12 @@ export default function LeadsWorkspace({
   const [createDeal] = useCreateDealMutation();
   const confirm = useConfirm();
   const toast = useToast();
+  // Which lead row is mid-request, and what it is doing.
+  const [busy, setBusy] = useState<{ id: string; action: "delete" | "convert" | "delegate" } | null>(
+    null,
+  );
+  const busyOn = (id: string, action: "delete" | "convert" | "delegate") =>
+    busy?.id === id && busy.action === action;
 
   const [addOpen, setAddOpen] = useState(false);
   const [form, setForm] = useState(emptyForm);
@@ -138,11 +144,14 @@ export default function LeadsWorkspace({
       ),
     });
     if (!ok) return;
+    setBusy({ id: lead.id, action: "delete" });
     try {
       await deleteLead(lead.id).unwrap();
       toast.success("Deleted.");
     } catch (err) {
       toast.error(apiErrorMessage(err, "Could not delete that lead."));
+    } finally {
+      setBusy(null);
     }
   };
 
@@ -165,11 +174,14 @@ export default function LeadsWorkspace({
       });
       if (!ok) return;
     }
+    setBusy({ id: lead.id, action: "delegate" });
     try {
       await delegateLead({ id: lead.id, delegatedTo: targetId }).unwrap();
       toast.success(targetId ? `Delegated to ${target?.name || "team member"}.` : "Delegation removed.");
     } catch (err) {
       toast.error(apiErrorMessage(err, "Could not delegate that request."));
+    } finally {
+      setBusy(null);
     }
   };
 
@@ -192,6 +204,7 @@ export default function LeadsWorkspace({
     if (!ok) return;
     const monthValues = new Array(12).fill(0);
     monthValues[lead.monthIndex ?? 0] = Number(lead.amount || 0);
+    setBusy({ id: lead.id, action: "convert" });
     try {
       await createDeal({
         manager: lead.managerId,
@@ -208,6 +221,8 @@ export default function LeadsWorkspace({
       toast.success(`${lead.talentName} added to the CRM pipeline.`);
     } catch (err) {
       toast.error(apiErrorMessage(err, "Could not create the CRM deal."));
+    } finally {
+      setBusy(null);
     }
   };
 
@@ -445,15 +460,21 @@ export default function LeadsWorkspace({
                 </div>
                 <div className="row-actions">
                   {category === "Deal" ? (
-                    <button className="primary small" type="button" onClick={() => handleConvert(lead)}>
-                      Convert to CRM deal
+                    <button
+                      className="primary small"
+                      type="button"
+                      disabled={busyOn(lead.id, "convert")}
+                      onClick={() => handleConvert(lead)}
+                    >
+                      {busyOn(lead.id, "convert") ? "Creating…" : "Convert to CRM deal"}
                     </button>
                   ) : (
                     <label className="delegate-control">
-                      <span>Assign to</span>
+                      <span>{busyOn(lead.id, "delegate") ? "Assigning…" : "Assign to"}</span>
                       <select
                         className="compact-select"
                         value={lead.delegatedToId || ""}
+                        disabled={busyOn(lead.id, "delegate")}
                         onChange={(e) => handleDelegate(lead, e.target.value)}
                         aria-label={`Delegate ${lead.subject || "request"}`}
                       >
@@ -471,10 +492,11 @@ export default function LeadsWorkspace({
                   <button
                     className="secondary danger-button small"
                     type="button"
+                    disabled={busyOn(lead.id, "delete")}
                     onClick={() => handleDelete(lead)}
                     aria-label={`Delete ${lead.subject || "this item"}`}
                   >
-                    Delete
+                    {busyOn(lead.id, "delete") ? "Deleting…" : "Delete"}
                   </button>
                 </div>
               </article>

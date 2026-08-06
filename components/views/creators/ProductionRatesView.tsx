@@ -3,10 +3,12 @@
 import { useEffect, useState } from "react";
 import { productionItems } from "@/lib/mock";
 import { useGetSettingsQuery, useUpdateSettingsMutation } from "@/redux/api/settingsApi";
+import { apiErrorMessage, useToast } from "@/components/ui/Toast";
 
 export default function ProductionRatesView() {
   const { data: settings } = useGetSettingsQuery();
   const [updateSettings, { isLoading }] = useUpdateSettingsMutation();
+  const toast = useToast();
 
   const [rates, setRates] = useState<Record<string, string>>({});
 
@@ -24,7 +26,12 @@ export default function ProductionRatesView() {
       acc[item] = Number(rates[item]) || 0;
       return acc;
     }, {});
-    await updateSettings({ productionRates });
+    try {
+      await updateSettings({ productionRates }).unwrap();
+      toast.success("Production day rates saved.");
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Could not save those day rates."));
+    }
   };
 
   return (

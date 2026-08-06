@@ -8,17 +8,21 @@ export const dealApi = baseApi.injectEndpoints({
       transformResponse: (res: ApiEnvelope<ApiDeal[]>) => res.data,
       providesTags: ["Deal"],
     }),
+    // Writing a deal writes its approval request too: a deal that lands on a
+    // committed stage raises one, and deleting a deal takes its request with it
+    // (see ensureApproval / deleteDeal in deal.service.ts). Without the Approval
+    // tag the Approvals tab and its sidebar badge only catch up on a reload.
     createDeal: builder.mutation<ApiDeal, Partial<ApiDeal>>({
       query: (body) => ({ url: "/deal", method: "POST", body }),
-      invalidatesTags: ["Deal"],
+      invalidatesTags: ["Deal", "Approval"],
     }),
     updateDeal: builder.mutation<ApiDeal, { id: string; body: Partial<ApiDeal> }>({
       query: ({ id, body }) => ({ url: `/deal/${id}`, method: "PATCH", body }),
-      invalidatesTags: ["Deal"],
+      invalidatesTags: ["Deal", "Approval"],
     }),
     deleteDeal: builder.mutation<null, string>({
       query: (id) => ({ url: `/deal/${id}`, method: "DELETE" }),
-      invalidatesTags: ["Deal"],
+      invalidatesTags: ["Deal", "Approval"],
     }),
     createDealInvoice: builder.mutation<ApiDeal, string>({
       query: (id) => ({ url: `/deal/${id}/xero-invoice`, method: "POST" }),

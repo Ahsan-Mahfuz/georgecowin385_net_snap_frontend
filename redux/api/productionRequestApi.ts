@@ -27,6 +27,13 @@ export const productionRequestApi = baseApi.injectEndpoints({
       query: (id) => ({ url: `/production-request/${id}/dismiss-rejection`, method: "POST" }),
       invalidatesTags: ["ProductionRequest"],
     }),
+    // Clears the whole backlog in one call. The screen used to fire one request
+    // per notice, which left the page half-cleared if any of them failed.
+    dismissAllProductionRejections: builder.mutation<{ dismissed: number }, void>({
+      query: () => ({ url: "/production-request/dismiss-rejections", method: "POST" }),
+      transformResponse: (res: ApiEnvelope<{ dismissed: number }>) => res.data,
+      invalidatesTags: ["ProductionRequest"],
+    }),
     requestProductionChargeback: builder.mutation<ApiProductionRequest, string>({
       query: (id) => ({ url: `/production-request/${id}/request-chargeback`, method: "POST" }),
       invalidatesTags: ["ProductionRequest"],
@@ -43,6 +50,7 @@ export const {
   useCreateProductionRequestMutation,
   useUpdateProductionRequestMutation,
   useDismissProductionRejectionMutation,
+  useDismissAllProductionRejectionsMutation,
   useRequestProductionChargebackMutation,
   useDeleteProductionRequestMutation,
 } = productionRequestApi;

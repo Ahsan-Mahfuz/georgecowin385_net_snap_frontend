@@ -138,6 +138,8 @@ export interface CollectiveDeal {
   /** Linked Xero contact, so a repeat client never becomes a duplicate. */
   xeroContactId: string;
   xeroContactName: string;
+  /** What Xero said about this brand when the deal was last saved. */
+  xeroContactStatus: string;
   xeroOrg: string;
   xeroInvoiceId: string;
   xeroStatus: string;

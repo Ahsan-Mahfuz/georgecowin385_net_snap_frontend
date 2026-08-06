@@ -239,6 +239,11 @@ export interface ApiSettings {
   /** Sales commission %, keyed newBusiness / returningBusiness / other. */
   collectiveCommissionRates: Record<string, number>;
   productionRates: Record<string, number>;
+  /**
+   * Who signs off a Contract Signed deal, keyed by the submitting manager's id.
+   * "" means "use their line manager"; "admin" means "send it to an admin".
+   */
+  approvalRoutes: Record<string, string>;
 }
 
 /** One salesperson's line on the Collective commission sheet. */
@@ -347,6 +352,8 @@ export interface ApiCollectiveDeal {
   }[];
   xeroContactId?: string;
   xeroContactName?: string;
+  /** What Xero said about this brand when the deal was last saved. */
+  xeroContactStatus?: string;
   xeroOrg: string;
   xeroInvoiceId: string;
   xeroStatus: string;

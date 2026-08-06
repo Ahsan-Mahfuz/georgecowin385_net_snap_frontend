@@ -8,11 +8,13 @@ import { useDispatch } from "react-redux";
 import { loginCreators, resetPortal } from "@/redux/features/session/sessionSlice";
 import { creatorViewsByRole } from "@/config/navigation";
 import { useLoginMutation } from "@/redux/api/authApi";
+import { useToast } from "@/components/ui/Toast";
 
 export default function CreatorsLoginPage() {
   const router = useRouter();
   const dispatch = useDispatch();
   const [login, { isLoading }] = useLoginMutation();
+  const toast = useToast();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -24,6 +26,7 @@ export default function CreatorsLoginPage() {
     try {
       const { token, user } = await login({ email, password, portal: "creators" }).unwrap();
       dispatch(loginCreators({ user, token }));
+      toast.success(`Signed in as ${user.name}.`);
       const firstView = creatorViewsByRole[user.role]?.[0]?.id || "pl-live";
       router.push(`/creators/${firstView}`);
     } catch (err) {
@@ -31,6 +34,7 @@ export default function CreatorsLoginPage() {
         (err as { data?: { message?: string } })?.data?.message ||
         "Could not sign in. Is the backend running?";
       setError(message);
+      toast.error(message);
     }
   };
 

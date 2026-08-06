@@ -45,7 +45,9 @@ export const userApi = baseApi.injectEndpoints({
         method: "PATCH",
         body: { lineManager },
       }),
-      invalidatesTags: ["User", "Team"],
+      // A reporting line change moves that manager's waiting deals to the new
+      // approver, so the Approvals tab is stale too.
+      invalidatesTags: ["User", "Team", "Approval"],
     }),
   }),
 });

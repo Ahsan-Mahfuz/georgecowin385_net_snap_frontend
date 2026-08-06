@@ -1963,6 +1963,27 @@ select:disabled {
   padding: 0 12px;
 }
 
+/* Reject-with-a-reason, inline on the approval card. Replaces window.prompt,
+   which browsers are free to suppress entirely. */
+.approval-reject {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line, rgba(0, 0, 0, 0.08));
+}
+
+.approval-reject label {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.approval-reject input {
+  width: 100%;
+  min-height: 34px;
+  padding: 0 10px;
+}
+
 .rejection-message.unread {
   border-color: rgba(196, 73, 95, 0.38);
   background: #fff7f7;

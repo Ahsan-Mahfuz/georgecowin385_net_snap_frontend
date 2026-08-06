@@ -7,11 +7,13 @@ import { useRouter } from "next/navigation";
 import { useDispatch } from "react-redux";
 import { resetPortal } from "@/redux/features/session/sessionSlice";
 import { useSignupMutation } from "@/redux/api/authApi";
+import { useToast } from "@/components/ui/Toast";
 
 export default function CollectiveSignupPage() {
   const router = useRouter();
   const dispatch = useDispatch();
   const [signup, { isLoading }] = useSignupMutation();
+  const toast = useToast();
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -37,11 +39,13 @@ export default function CollectiveSignupPage() {
         portal: "collective",
       }).unwrap();
       setDone(true);
+      toast.success("Account requested — an admin has to approve it before you can sign in.");
     } catch (err) {
       const message =
         (err as { data?: { message?: string } })?.data?.message ||
         "Could not create account. Is the backend running?";
       setError(message);
+      toast.error(message);
     }
   };
 

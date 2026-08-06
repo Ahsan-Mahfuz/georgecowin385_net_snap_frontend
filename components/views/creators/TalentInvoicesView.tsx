@@ -180,12 +180,16 @@ function buildInvoices(
       };
     });
 
-    // Production chargebacks for this talent
+    /*
+     * Every shoot production accepted — the same set syncTalentBill deducts on
+     * the backend. It used to also require `chargebackRequestedAt`, so an
+     * accepted shoot came off the bill in Xero while this screen (and the
+     * talent's remittance) showed the full amount.
+     */
     const talentProds = prodRequests.filter(
       (p) =>
         p.talentName.trim().toLowerCase() === talentName.trim().toLowerCase() &&
         (p.status === "scheduled" || p.status === "completed") &&
-        p.chargebackRequestedAt &&
         (!p.xeroBillId || p.xeroBillId === billId),
     );
     const totalProductionDeducted = talentProds.reduce((t, p) => t + Number(p.total || 0), 0);
@@ -277,6 +281,12 @@ export default function TalentInvoicesView() {
   const { data: prodData = [] } = useGetProductionRequestsQuery();
   const [sendRemittance] = useSendDealRemittanceMutation();
   const [markTalentPaid] = useMarkDealTalentPaidMutation();
+  /*
+   * These act on a whole invoice (several deals at once), so the progress state
+   * is per action rather than per RTK Query hook — one hook fires many times.
+   */
+  const [busyAction, setBusyAction] = useState<"remittance" | "paid" | null>(null);
+  const [busyLineId, setBusyLineId] = useState<string | null>(null);
   const [syncTalentBill, { isLoading: billing }] = useSyncTalentBillMutation();
   const confirm = useConfirm();
   const toast = useToast();
@@ -322,15 +332,45 @@ export default function TalentInvoicesView() {
   // Send remittance advice to the talent for every not-yet-settled deal on the invoice.
   const onSendRemittance = async (invoice: TalentInvoice) => {
     const pending = invoice.lines.filter((l) => !l.paidEarly);
-    await Promise.all(pending.map((l) => sendRemittance(l.dealId).unwrap().catch(() => null)));
+    setBusyAction("remittance");
+    try {
+      const results = await Promise.all(
+        pending.map((l) => sendRemittance(l.dealId).unwrap().then(() => true).catch(() => false)),
+      );
+      const sent = results.filter(Boolean).length;
+      if (sent) toast.success(`Remittance sent to ${invoice.talentName} for ${sent} deal(s).`);
+      else toast.error("Could not send that remittance.");
+    } finally {
+      setBusyAction(null);
+    }
   };
 
   const onMarkInvoicePaid = async (invoice: TalentInvoice) => {
     const pending = invoice.lines.filter((l) => !l.paidEarly);
-    await Promise.all(pending.map((l) => markTalentPaid(l.dealId).unwrap().catch(() => null)));
+    setBusyAction("paid");
+    try {
+      const results = await Promise.all(
+        pending.map((l) => markTalentPaid(l.dealId).unwrap().then(() => true).catch(() => false)),
+      );
+      const paid = results.filter(Boolean).length;
+      if (paid) toast.success(`${invoice.talentName} marked paid for ${paid} deal(s).`);
+      else toast.error("Could not mark that invoice paid.");
+    } finally {
+      setBusyAction(null);
+    }
   };
 
-  const onMarkLinePaid = (dealId: string) => markTalentPaid(dealId);
+  const onMarkLinePaid = async (dealId: string) => {
+    setBusyLineId(dealId);
+    try {
+      await markTalentPaid(dealId).unwrap();
+      toast.success("Deal marked as paid to the talent.");
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Could not mark that deal paid."));
+    } finally {
+      setBusyLineId(null);
+    }
+  };
 
   /**
    * Send the talent invoice to Xero as a draft **bill**. Once that bill is paid
@@ -542,6 +582,8 @@ export default function TalentInvoicesView() {
               onMarkLinePaid={onMarkLinePaid}
               onSendToXero={onSendToXero}
               billing={billing}
+              busyAction={busyAction}
+              busyLineId={busyLineId}
             />
           ) : (
             <div className="section-body">
@@ -564,6 +606,8 @@ function TalentInvoiceDetail({
   onMarkLinePaid,
   onSendToXero,
   billing,
+  busyAction,
+  busyLineId,
 }: {
   invoice: TalentInvoice;
   onSendRemittance: (invoice: TalentInvoice) => void;
@@ -571,6 +615,10 @@ function TalentInvoiceDetail({
   onMarkLinePaid: (dealId: string) => void;
   onSendToXero: (invoice: TalentInvoice) => void;
   billing: boolean;
+  /** Which invoice-wide action is in flight, so its button can say so. */
+  busyAction: "remittance" | "paid" | null;
+  /** The single deal line currently being settled. */
+  busyLineId: string | null;
 }) {
   const details = invoice.details;
   return (
@@ -638,8 +686,17 @@ function TalentInvoiceDetail({
               : "Send the remittance advice to the talent, then mark it paid once settled."}
           </div>
           {!invoice.paidAt ? (
-            <button className="secondary" type="button" onClick={() => onSendRemittance(invoice)}>
-              {invoice.remittanceSent ? "Resend remittance" : "Send remittance"}
+            <button
+              className="secondary"
+              type="button"
+              disabled={busyAction !== null}
+              onClick={() => onSendRemittance(invoice)}
+            >
+              {busyAction === "remittance"
+                ? "Sending…"
+                : invoice.remittanceSent
+                  ? "Resend remittance"
+                  : "Send remittance"}
             </button>
           ) : null}
         </div>
@@ -648,8 +705,13 @@ function TalentInvoiceDetail({
             This talent invoice has been paid. The linked CRM deals are now settled with the talent.
           </div>
         ) : (
-          <button className="primary" type="button" onClick={() => onMarkInvoicePaid(invoice)}>
-            Mark talent invoice paid
+          <button
+            className="primary"
+            type="button"
+            disabled={busyAction !== null}
+            onClick={() => onMarkInvoicePaid(invoice)}
+          >
+            {busyAction === "paid" ? "Saving…" : "Mark talent invoice paid"}
           </button>
         )}
       </div>
@@ -686,8 +748,13 @@ function TalentInvoiceDetail({
             </div>
             {!invoice.paidAt && !line.paidEarly ? (
               <div className="invoice-line-actions">
-                <button className="secondary" type="button" onClick={() => onMarkLinePaid(line.dealId)}>
-                  Mark this deal paid
+                <button
+                  className="secondary"
+                  type="button"
+                  disabled={busyLineId === line.dealId}
+                  onClick={() => onMarkLinePaid(line.dealId)}
+                >
+                  {busyLineId === line.dealId ? "Saving…" : "Mark this deal paid"}
                 </button>
               </div>
             ) : line.paidEarly ? (

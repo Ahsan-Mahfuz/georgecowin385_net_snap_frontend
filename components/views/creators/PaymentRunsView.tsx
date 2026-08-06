@@ -24,6 +24,8 @@ export default function PaymentRunsView() {
   const [createRun, { isLoading: creating }] = useCreatePaymentRunMutation();
   const [updateRun] = useUpdatePaymentRunMutation();
   const [deleteRun] = useDeletePaymentRunMutation();
+  // Which run is mid-delete, so only that row's button spins.
+  const [removingId, setRemovingId] = useState<string | null>(null);
   const confirm = useConfirm();
   const toast = useToast();
 
@@ -91,11 +93,14 @@ export default function PaymentRunsView() {
       ),
     });
     if (!ok) return;
+    setRemovingId(id);
     try {
       await deleteRun(id).unwrap();
       toast.success("Payment run removed.");
     } catch (err) {
       toast.error(apiErrorMessage(err, "Could not remove that payment run."));
+    } finally {
+      setRemovingId(null);
     }
   };
 
@@ -215,9 +220,10 @@ export default function PaymentRunsView() {
                           <button
                             className="secondary danger-button small"
                             type="button"
+                            disabled={removingId === run._id}
                             onClick={() => handleRemove(run._id, run.date)}
                           >
-                            Remove
+                            {removingId === run._id ? "Removing…" : "Remove"}
                           </button>
                         </td>
                       </tr>

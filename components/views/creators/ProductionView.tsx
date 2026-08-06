@@ -11,6 +11,7 @@ import {
   useCreateProductionRequestMutation,
   useUpdateProductionRequestMutation,
   useDismissProductionRejectionMutation,
+  useDismissAllProductionRejectionsMutation,
 } from "@/redux/api/productionRequestApi";
 import { useSelector } from "react-redux";
 import { RootState } from "@/redux/store";
@@ -54,10 +55,17 @@ export default function ProductionView() {
   const { data: talentData = [] } = useGetTalentsQuery();
   const { data: settings } = useGetSettingsQuery();
   const { data: requests = [], isLoading } = useGetProductionRequestsQuery();
-  const [createRequest] = useCreateProductionRequestMutation();
+  const [createRequest, { isLoading: requesting }] = useCreateProductionRequestMutation();
   const [updateRequest] = useUpdateProductionRequestMutation();
   const [dismissRejection] = useDismissProductionRejectionMutation();
+  const [dismissAllRejections] = useDismissAllProductionRejectionsMutation();
   const toast = useToast();
+  // Which shoot is mid-decision, so only that card's buttons show progress.
+  const [busyRequestId, setBusyRequestId] = useState<string | null>(null);
+  const [dismissingAll, setDismissingAll] = useState(false);
+  // The shoot whose rejection reason is being typed, and the reason so far.
+  const [rejectingId, setRejectingId] = useState<string | null>(null);
+  const [rejectReason, setRejectReason] = useState("");
   const user = useSelector((s: RootState) => s.session.user);
   // Scheduling, completing and rejecting a shoot belongs to the production team
   // alone. This screen is the managers' and admins' view of the same queue, so
@@ -111,7 +119,8 @@ export default function ProductionView() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!managerId || !talentName.trim()) return;
+    if (!managerId) return toast.error("Choose the talent manager this shoot is for.");
+    if (!talentName.trim()) return toast.error("Enter the talent this shoot is for.");
     const items = productionItems
       .filter((item) => checkedItems[item])
       .map((item) => ({
@@ -119,19 +128,41 @@ export default function ProductionView() {
         days: Math.max(1, Number(itemDays[item] || 1)),
         rate: Number(productionRates[item] || 0),
       }));
-    await createRequest({
-      manager: managerId,
-      talentName: talentName.trim(),
-      shootDate,
-      videoBrief,
-      items,
-      total,
-    }).unwrap();
-    setTalentName("");
-    setShootDate("");
-    setVideoBrief("");
-    setCheckedItems({});
-    setItemDays({});
+    try {
+      await createRequest({
+        manager: managerId,
+        talentName: talentName.trim(),
+        shootDate,
+        videoBrief,
+        items,
+        total,
+      }).unwrap();
+      toast.success(`Production requested for ${talentName.trim()}.`);
+      setTalentName("");
+      setShootDate("");
+      setVideoBrief("");
+      setCheckedItems({});
+      setItemDays({});
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Could not send that production request."));
+    }
+  };
+
+  /** Schedule / complete / reject a shoot, with the card's own progress state. */
+  const decide = async (
+    id: string,
+    body: { status: string; rejectionReason?: string },
+    done: string,
+  ) => {
+    setBusyRequestId(id);
+    try {
+      await updateRequest({ id, body }).unwrap();
+      toast.success(done);
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Could not update that shoot."));
+    } finally {
+      setBusyRequestId(null);
+    }
   };
 
   const pendingRequests = requests.filter((r) => r.status === "pending");
@@ -323,8 +354,8 @@ export default function ProductionView() {
                   <label>Total amount</label>
                   <div className="read-field production-total">{money(total)}</div>
                 </div>
-                <button className="primary wide" type="submit">
-                  Request production
+                <button className="primary wide" type="submit" disabled={requesting}>
+                  {requesting ? "Sending request…" : "Request production"}
                 </button>
               </form>
             </div>
@@ -371,19 +402,28 @@ export default function ProductionView() {
             still see everything so they can chase.
             The same rejection is emailed to them; see notifyProductionRejected.
           */}
-          {rejectionNotices.length > 1 ? (
+          {rejectionNotices.length ? (
             <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "8px" }}>
               <button
                 className="secondary mini-button"
                 type="button"
+                disabled={dismissingAll}
                 onClick={async () => {
-                  for (const r of rejectionNotices) {
-                    await dismissRejection(r._id).unwrap().catch(() => null);
+                  setDismissingAll(true);
+                  try {
+                    // One call, not one per notice — see dismissAllRejections.
+                    const { dismissed } = await dismissAllRejections().unwrap();
+                    toast.success(
+                      `${dismissed} rejection notice${dismissed === 1 ? "" : "s"} cleared.`,
+                    );
+                  } catch (err) {
+                    toast.error(apiErrorMessage(err, "Could not clear those notices."));
+                  } finally {
+                    setDismissingAll(false);
                   }
-                  toast.success("All rejection notices dismissed.");
                 }}
               >
-                Dismiss All Rejection Notices
+                {dismissingAll ? "Clearing…" : "Clear all rejection notices"}
               </button>
             </div>
           ) : null}
@@ -402,15 +442,19 @@ export default function ProductionView() {
                 className="ghost dismiss-notice"
                 type="button"
                 aria-label={`Dismiss the rejection notice for ${r.talentName}`}
+                disabled={busyRequestId === r._id}
                 onClick={async () => {
+                  setBusyRequestId(r._id);
                   try {
                     await dismissRejection(r._id).unwrap();
                   } catch (err) {
                     toast.error(apiErrorMessage(err, "Could not dismiss that notice."));
+                  } finally {
+                    setBusyRequestId(null);
                   }
                 }}
               >
-                Dismiss
+                {busyRequestId === r._id ? "Dismissing…" : "Dismiss"}
               </button>
             </div>
           ))}
@@ -469,33 +513,86 @@ export default function ProductionView() {
                         </div>
                       ) : null
                     ) : r.status === "pending" ? (
-                      <div className="deal-actions">
-                        <button
-                          className="primary"
-                          type="button"
-                          onClick={() => updateRequest({ id: r._id, body: { status: "scheduled" } })}
-                        >
-                          Schedule shoot
-                        </button>
-                        <button
-                          className="secondary danger-button"
-                          type="button"
-                          onClick={() => {
-                            const reason = typeof window !== "undefined" ? window.prompt("Enter reason for rejection:") || "" : "";
-                            updateRequest({ id: r._id, body: { status: "rejected", rejectionReason: reason } });
-                          }}
-                        >
-                          Reject
-                        </button>
-                      </div>
+                      rejectingId === r._id ? (
+                        /* Inline rather than window.prompt, which browsers are
+                           free to suppress — and which loses what was typed. */
+                        <div className="approval-reject">
+                          <label htmlFor={`shoot-reject-${r._id}`}>Why is this being turned down?</label>
+                          <input
+                            id={`shoot-reject-${r._id}`}
+                            value={rejectReason}
+                            autoFocus
+                            placeholder="The manager is emailed this reason"
+                            onChange={(e) => setRejectReason(e.target.value)}
+                          />
+                          <div className="deal-actions">
+                            <button
+                              className="secondary danger-button"
+                              type="button"
+                              disabled={busyRequestId === r._id}
+                              onClick={async () => {
+                                await decide(
+                                  r._id,
+                                  { status: "rejected", rejectionReason: rejectReason },
+                                  `${r.talentName}'s shoot was turned down.`,
+                                );
+                                setRejectingId(null);
+                                setRejectReason("");
+                              }}
+                            >
+                              {busyRequestId === r._id ? "Rejecting…" : "Confirm rejection"}
+                            </button>
+                            <button
+                              className="secondary"
+                              type="button"
+                              disabled={busyRequestId === r._id}
+                              onClick={() => { setRejectingId(null); setRejectReason(""); }}
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="deal-actions">
+                          <button
+                            className="primary"
+                            type="button"
+                            disabled={busyRequestId === r._id}
+                            onClick={() =>
+                              decide(
+                                r._id,
+                                { status: "scheduled" },
+                                `${r.talentName}'s shoot is scheduled.`,
+                              )
+                            }
+                          >
+                            {busyRequestId === r._id ? "Scheduling…" : "Schedule shoot"}
+                          </button>
+                          <button
+                            className="secondary danger-button"
+                            type="button"
+                            disabled={busyRequestId === r._id}
+                            onClick={() => { setRejectingId(r._id); setRejectReason(""); }}
+                          >
+                            Reject
+                          </button>
+                        </div>
+                      )
                     ) : r.status === "scheduled" ? (
                       <div className="deal-actions">
                         <button
                           className="primary"
                           type="button"
-                          onClick={() => updateRequest({ id: r._id, body: { status: "completed" } })}
+                          disabled={busyRequestId === r._id}
+                          onClick={() =>
+                            decide(
+                              r._id,
+                              { status: "completed" },
+                              `${r.talentName}'s shoot is marked completed.`,
+                            )
+                          }
                         >
-                          Mark completed
+                          {busyRequestId === r._id ? "Saving…" : "Mark completed"}
                         </button>
                       </div>
                     ) : null}

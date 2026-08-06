@@ -10,7 +10,9 @@ export const settingsApi = baseApi.injectEndpoints({
     }),
     updateSettings: builder.mutation<ApiSettings, Partial<ApiSettings>>({
       query: (body) => ({ url: "/settings", method: "PATCH", body }),
-      invalidatesTags: ["Settings"],
+      // Changing an approval route re-points the requests already waiting, so
+      // the Approvals tab has to be refetched alongside the settings.
+      invalidatesTags: ["Settings", "Approval"],
     }),
     getXeroStatus: builder.query<{ connected: boolean }, void>({
       query: () => "/xero/status",

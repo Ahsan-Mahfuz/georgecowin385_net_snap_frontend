@@ -89,7 +89,7 @@ export default function BrandsView() {
   const { data: dealData = [] } = useGetDealsQuery({ year: String(year) });
   const [createBrand, { isLoading: creating }] = useCreateBrandMutation();
   const [updateBrand, { isLoading: updating }] = useUpdateBrandMutation();
-  const [deleteBrand] = useDeleteBrandMutation();
+  const [deleteBrand, { isLoading: deleting }] = useDeleteBrandMutation();
   const confirm = useConfirm();
   const toast = useToast();
 
@@ -314,9 +314,10 @@ export default function BrandsView() {
                         <button
                           className="secondary danger-button"
                           type="button"
+                          disabled={deleting}
                           onClick={() => handleDelete(selected)}
                         >
-                          Delete brand
+                          {deleting ? "Deleting…" : "Delete brand"}
                         </button>
                       </>
                     ) : records.length ? (

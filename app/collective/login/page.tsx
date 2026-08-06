@@ -7,11 +7,13 @@ import { useRouter } from "next/navigation";
 import { useDispatch } from "react-redux";
 import { loginCollective, resetPortal } from "@/redux/features/session/sessionSlice";
 import { useLoginMutation } from "@/redux/api/authApi";
+import { useToast } from "@/components/ui/Toast";
 
 export default function CollectiveLoginPage() {
   const router = useRouter();
   const dispatch = useDispatch();
   const [login, { isLoading }] = useLoginMutation();
+  const toast = useToast();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -23,12 +25,14 @@ export default function CollectiveLoginPage() {
     try {
       const { token, user } = await login({ email, password, portal: "collective" }).unwrap();
       dispatch(loginCollective({ user, token }));
+      toast.success(`Signed in as ${user.name}.`);
       router.push("/collective/collective-crm");
     } catch (err) {
       const message =
         (err as { data?: { message?: string } })?.data?.message ||
         "Could not sign in. Is the backend running?";
       setError(message);
+      toast.error(message);
     }
   };
 

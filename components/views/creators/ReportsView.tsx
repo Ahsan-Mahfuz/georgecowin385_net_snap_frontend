@@ -240,16 +240,20 @@ export default function ReportsView() {
 
     const dealTotal = paidDeals.reduce((total, deal) => total + talentPayableAmount(deal), 0);
     const expenseTotal = paidDeals.reduce((total, deal) => total + dealTalentExpenseTotal(deal.id), 0);
-    const prodChargebackTotal = selected
-      ? (prodData as ApiProductionRequest[])
-          .filter(
-            (p) =>
-              p.talentName.trim().toLowerCase() === selected.talentName.trim().toLowerCase() &&
-              (p.status === "scheduled" || p.status === "completed") &&
-              p.chargebackRequestedAt,
-          )
-          .reduce((t, p) => t + Number(p.total || 0), 0)
-      : 0;
+    /*
+     * Every shoot production accepted, whether or not Finance has raised the
+     * chargeback yet — because that is exactly what syncTalentBill deducts from
+     * the talent's bill. Requiring `chargebackRequestedAt` here meant money came
+     * off what the talent was paid while their remittance said nothing about it.
+     */
+    const chargebacks = selected
+      ? (prodData as ApiProductionRequest[]).filter(
+          (p) =>
+            p.talentName.trim().toLowerCase() === selected.talentName.trim().toLowerCase() &&
+            (p.status === "scheduled" || p.status === "completed"),
+        )
+      : [];
+    const prodChargebackTotal = chargebacks.reduce((t, p) => t + Number(p.total || 0), 0);
 
     return (
       <>
@@ -396,6 +400,44 @@ export default function ReportsView() {
               </div>
             )}
           </div>
+
+          {/* What was taken off, itemised. The bill in Xero already deducts these
+              shoots; showing only a single net figure left the talent unable to
+              see why they were paid less than the deals add up to. */}
+          {chargebacks.length ? (
+            <>
+              <div className="section-head">
+                <h3>Production chargebacks deducted</h3>
+                <span className="pill rejected">-{money(prodChargebackTotal)}</span>
+              </div>
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Shoot date</th>
+                      <th>Brief</th>
+                      <th>Status</th>
+                      <th>Deducted</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {chargebacks.map((shoot) => (
+                      <tr key={shoot._id}>
+                        <td>{shoot.shootDate ? displayDate(shoot.shootDate) : "-"}</td>
+                        <td>{shoot.videoBrief || "Shoot"}</td>
+                        <td>
+                          {shoot.chargebackRequestedAt
+                            ? "Charged back"
+                            : "Accepted — will be deducted"}
+                        </td>
+                        <td style={{ color: "#c53030" }}>-{money(Number(shoot.total || 0))}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          ) : null}
         </section>
       </>
     );

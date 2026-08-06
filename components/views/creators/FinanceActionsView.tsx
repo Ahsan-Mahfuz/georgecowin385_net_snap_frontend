@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { money, sum } from "@/lib/format";
 import { toDeal } from "@/lib/adapters";
+import { financeBuckets, financeActionCount } from "@/lib/financeActions";
 import type { Deal } from "@/lib/mock";
 import { useCreatorsTeam } from "@/hooks/useCreatorsTeam";
 import {
@@ -30,6 +31,9 @@ export default function FinanceActionsView() {
   const toast = useToast();
   const confirm = useConfirm();
 
+  // Which card is mid-request. Finance works down a list, so a global flag would
+  // grey out every other row while one of them talks to Xero.
+  const [busyDealId, setBusyDealId] = useState<string | null>(null);
   const [openDealId, setOpenDealId] = useState<string | null>(null);
   // Finished work, kept collapsed so it does not push the open actions down.
   const [showPaidToTalent, setShowPaidToTalent] = useState(false);
@@ -38,19 +42,10 @@ export default function FinanceActionsView() {
   const deals = dealData.map(toDeal);
   const openDeal = deals.find((d) => d.id === openDealId) || null;
 
-  // The four things Finance actually does, in the order the money moves.
-  const needsDraft = deals.filter((d) => d.stage === "To Be Invoiced" && !d.xeroInvoiceId);
-  const awaitingSend = deals.filter(
-    (d) => d.xeroInvoiceId && (d.xeroState === "DRAFT" || !d.xeroState) && d.financeStatus !== "Paid",
-  );
-  const awaitingPayment = deals.filter(
-    (d) => d.xeroInvoiceId && ["AUTHORISED", "SUBMITTED"].includes(d.xeroState || "") && d.financeStatus !== "Paid",
-  );
-  const talentToPay = deals.filter((d) => d.financeStatus === "Paid" && d.remittanceStatus !== "Paid");
-  // Settled with the talent — nothing left to do, but Finance still wants the record.
-  const paidToTalent = deals
-    .filter((d) => d.remittanceStatus === "Paid")
-    .sort((a, b) => (b.remittancePaidAt || "").localeCompare(a.remittancePaidAt || ""));
+  // The things Finance actually does, in the order the money moves. Shared with
+  // the sidebar badge so the two can never disagree — see lib/financeActions.ts.
+  const { needsDraft, draftFailed, awaitingSend, awaitingPayment, talentToPay, paidToTalent } =
+    financeBuckets(deals);
 
   const total = (list: Deal[]) => list.reduce((t, d) => t + dealTotal(d), 0);
 
@@ -74,11 +69,26 @@ export default function FinanceActionsView() {
   };
 
   const raiseDraft = async (deal: Deal) => {
+    setBusyDealId(deal.id);
     try {
       await createInvoice(deal.id).unwrap();
       toast.success(`Draft raised in Xero for ${deal.talentName}.`);
     } catch (err) {
       toast.error(apiErrorMessage(err, "Could not create that draft."));
+    } finally {
+      setBusyDealId(null);
+    }
+  };
+
+  const markSent = async (deal: Deal) => {
+    setBusyDealId(deal.id);
+    try {
+      await markInvoiced(deal.id).unwrap();
+      toast.success(`${deal.talentName} marked as invoiced.`);
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Could not mark that deal invoiced."));
+    } finally {
+      setBusyDealId(null);
     }
   };
 
@@ -99,11 +109,14 @@ export default function FinanceActionsView() {
       ),
     });
     if (!ok) return;
+    setBusyDealId(deal.id);
     try {
       await markPaid(deal.id).unwrap();
       toast.success("Marked paid — the talent invoice is now on the next payment run.");
     } catch (err) {
       toast.error(apiErrorMessage(err, "Could not update that deal."));
+    } finally {
+      setBusyDealId(null);
     }
   };
 
@@ -181,10 +194,8 @@ export default function FinanceActionsView() {
         <div className="section-head">
           <h2>Xero</h2>
           <div className="section-actions">
-            <span className="pill">
-              {needsDraft.length + awaitingSend.length + awaitingPayment.length + talentToPay.length} open
-              actions
-            </span>
+            {/* Same arithmetic as the sidebar badge, so the two always agree. */}
+            <span className="pill">{financeActionCount(deals)} open actions</span>
             <button className="primary" type="button" onClick={runSync} disabled={syncing}>
               {syncing ? "Checking Xero…" : "Check Xero now"}
             </button>
@@ -199,15 +210,44 @@ export default function FinanceActionsView() {
         </div>
       </section>
 
+      {/* Xero refused these outright. They used to be counted on the sidebar
+          badge but listed nowhere, so the number was unexplainable. */}
+      {section(
+        "Xero refused the draft",
+        "Xero would not accept these. Fix what it objected to on the deal, then raise the draft again.",
+        draftFailed,
+        (deal) =>
+          card(
+            deal,
+            <button
+              className="primary"
+              type="button"
+              disabled={busyDealId === deal.id}
+              onClick={() => raiseDraft(deal)}
+            >
+              {busyDealId === deal.id ? "Retrying…" : "Try again"}
+            </button>,
+            <span className="pill rejected" title={deal.xeroStatus || "Xero gave no reason"}>
+              {deal.xeroStatus ? deal.xeroStatus.slice(0, 60) : "Rejected by Xero"}
+            </span>,
+          ),
+        "Xero has not refused any drafts.",
+      )}
+
       {section(
         "Waiting for a draft",
-        "These reached To Be Invoiced but no draft exists in Xero — usually because Xero rejected it. Raise it here.",
+        "These reached To Be Invoiced but no draft exists in Xero yet. Raise it here.",
         needsDraft,
         (deal) =>
           card(
             deal,
-            <button className="primary" type="button" onClick={() => raiseDraft(deal)}>
-              Create draft in Xero
+            <button
+              className="primary"
+              type="button"
+              disabled={busyDealId === deal.id}
+              onClick={() => raiseDraft(deal)}
+            >
+              {busyDealId === deal.id ? "Creating in Xero…" : "Create draft in Xero"}
             </button>,
           ),
         "Every deal at To Be Invoiced already has its draft in Xero.",
@@ -220,8 +260,13 @@ export default function FinanceActionsView() {
         (deal) =>
           card(
             deal,
-            <button className="secondary" type="button" onClick={() => markInvoiced(deal.id)}>
-              Mark invoiced by hand
+            <button
+              className="secondary"
+              type="button"
+              disabled={busyDealId === deal.id}
+              onClick={() => markSent(deal)}
+            >
+              {busyDealId === deal.id ? "Saving…" : "Mark invoiced by hand"}
             </button>,
             <span className="pill pipeline">Draft</span>,
           ),
@@ -235,8 +280,13 @@ export default function FinanceActionsView() {
         (deal) =>
           card(
             deal,
-            <button className="secondary" type="button" onClick={() => confirmMarkPaid(deal)}>
-              Mark paid by hand
+            <button
+              className="secondary"
+              type="button"
+              disabled={busyDealId === deal.id}
+              onClick={() => confirmMarkPaid(deal)}
+            >
+              {busyDealId === deal.id ? "Saving…" : "Mark paid by hand"}
             </button>,
             <span className="pill admin">{deal.xeroState}</span>,
           ),

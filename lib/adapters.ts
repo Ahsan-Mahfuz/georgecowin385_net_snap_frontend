@@ -28,8 +28,22 @@ export function toProfile(u: ApiUser): Profile {
   };
 }
 
+/**
+ * Roles that can own talent and carry deals.
+ *
+ * The client runs the portal with their talent managers on the **admin** role,
+ * and this list used to be `role === "manager"` alone. That quietly removed
+ * every one of them from the CRM's manager picker, from the commission sheets,
+ * and from the reporting-line and approval-routing forms on Permissions — so
+ * there was no way to say who approves their deals, and no commission sheet to
+ * check afterwards. Finance and production do not own deals, so they stay out.
+ */
+export const TALENT_MANAGER_ROLES = ["manager", "admin", "operations"] as const;
+
 export function toManagers(team: ApiUser[]): Profile[] {
-  return team.filter((u) => u.role === "manager").map(toProfile);
+  return team
+    .filter((u) => (TALENT_MANAGER_ROLES as readonly string[]).includes(u.role))
+    .map(toProfile);
 }
 
 export function toDeal(d: ApiDeal): Deal {
@@ -146,6 +160,7 @@ export function toCollectiveDeal(d: ApiCollectiveDeal): CollectiveDeal {
     })),
     xeroContactId: d.xeroContactId || "",
     xeroContactName: d.xeroContactName || "",
+    xeroContactStatus: d.xeroContactStatus || "",
     xeroOrg: d.xeroOrg,
     xeroInvoiceId: d.xeroInvoiceId,
     xeroStatus: d.xeroStatus,

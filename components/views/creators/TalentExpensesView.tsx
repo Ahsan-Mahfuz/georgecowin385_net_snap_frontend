@@ -47,6 +47,8 @@ export default function TalentExpensesView() {
   const { data: expenseData = [] } = useGetExpensesQuery({ kind: "talent" });
   const [createExpense, { isLoading: saving }] = useCreateExpenseMutation();
   const [deleteExpense] = useDeleteExpenseMutation();
+  // Which expense row is mid-removal, so only that row's button spins.
+  const [removingId, setRemovingId] = useState<string | null>(null);
   const [invoiceExpenses, { isLoading: invoicing }] = useInvoiceTalentExpensesMutation();
   const confirm = useConfirm();
   const toast = useToast();
@@ -186,11 +188,14 @@ export default function TalentExpensesView() {
       ),
     });
     if (!ok) return;
+    setRemovingId(expense._id);
     try {
       await deleteExpense(expense._id).unwrap();
       toast.success("Expense removed.");
     } catch (err) {
       toast.error(apiErrorMessage(err, "Could not remove that expense."));
+    } finally {
+      setRemovingId(null);
     }
   };
 
@@ -360,7 +365,7 @@ export default function TalentExpensesView() {
                                     <button
                                       className="secondary danger-button small"
                                       type="button"
-                                      disabled={Boolean(e.xeroInvoiceId || e.xeroBillId)}
+                                      disabled={Boolean(e.xeroInvoiceId || e.xeroBillId) || removingId === e._id}
                                       title={
                                         e.xeroInvoiceId || e.xeroBillId
                                           ? "Already on a Xero document — void it in Xero first"
@@ -368,7 +373,7 @@ export default function TalentExpensesView() {
                                       }
                                       onClick={() => handleRemove(e)}
                                     >
-                                      Remove
+                                      {removingId === e._id ? "Removing…" : "Remove"}
                                     </button>
                                   </td>
                                 </tr>

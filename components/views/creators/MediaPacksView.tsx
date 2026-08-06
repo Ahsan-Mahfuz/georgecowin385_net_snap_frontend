@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useCreatorsTeam } from "@/hooks/useCreatorsTeam";
+import { useToast } from "@/components/ui/Toast";
 import { useGetTalentsQuery } from "@/redux/api/talentApi";
 import { refId } from "@/lib/adapters";
 import type { ApiTalent } from "@/redux/api/types";
@@ -40,6 +41,7 @@ interface RosterRow {
 
 export default function MediaPacksView() {
   const { users } = useCreatorsTeam();
+  const toast = useToast();
   const { data: talentData = [] } = useGetTalentsQuery();
   const managerName = (id: string) => users.find((u) => u.id === id)?.name || "Unassigned";
 
@@ -70,7 +72,7 @@ export default function MediaPacksView() {
   const downloadMediaPack = () => {
     const chosen = rows.filter((row) => selectedKeys.includes(row.key));
     if (!chosen.length) {
-      if (typeof window !== "undefined") window.alert("Select at least one talent first.");
+      toast.error("Select at least one talent first.");
       return;
     }
     const cards = chosen
@@ -114,7 +116,7 @@ export default function MediaPacksView() {
       </style></head><body>${cards}</body></html>`;
     const win = window.open("", "_blank");
     if (!win) {
-      window.alert("Please allow pop-ups to download the media pack.");
+      toast.error("Your browser blocked the pop-up. Allow pop-ups for this site and try again.");
       return;
     }
     win.document.open();
@@ -122,6 +124,9 @@ export default function MediaPacksView() {
     win.document.close();
     win.focus();
     win.onload = () => win.print();
+    toast.success(
+      `Media pack opened for ${chosen.length} talent — use your browser’s print dialog to save it as a PDF.`,
+    );
   };
 
   return (

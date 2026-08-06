@@ -17,6 +17,7 @@ import { useGetApprovalsQuery } from "@/redux/api/approvalApi";
 import { useGetProductionRequestsQuery } from "@/redux/api/productionRequestApi";
 import { useGetSettingsQuery } from "@/redux/api/settingsApi";
 import { toDeal } from "@/lib/adapters";
+import { financeActionCount } from "@/lib/financeActions";
 
 /**
  * How many things need doing on each screen. These drive the numbered badge in
@@ -90,17 +91,10 @@ export function CreatorsShell({ children }: { children: React.ReactNode }) {
     () => productionData.filter((r) => r.status === "pending").length,
     [productionData],
   );
-  const financeActions = useMemo(
-    () =>
-      deals.filter(
-        (d) =>
-          // Only count items requiring active Finance action: pending draft creation or pending talent payout
-          (d.stage === "To Be Invoiced" && !d.xeroInvoiceId) ||
-          d.financeStatus === "Xero draft failed" ||
-          (d.financeStatus === "Paid" && d.remittanceStatus !== "Paid"),
-      ).length,
-    [deals],
-  );
+  // Exactly what the Finance Actions page lists — see lib/financeActions.ts.
+  // These were worked out separately and drifted, so the badge showed a number
+  // the page could not account for.
+  const financeActions = useMemo(() => financeActionCount(deals), [deals]);
 
   const monthIndex = currentMonthIndex();
   const target = Number(settings?.targets?.[monthIndex] || 0);

@@ -57,7 +57,7 @@ export default function CommissionView() {
   // A manager only sees their own sheet plus the people who report to them.
   // Admin / finance / operations keep the full view.
   const isManager = user?.role === "manager";
-  const managers = isManager
+  const visibleManagers = isManager
     ? allManagers.filter((m) => m.id === user?.id || m.lineManagerId === user?.id)
     : allManagers;
   const lineReportCount = isManager
@@ -69,20 +69,37 @@ export default function CommissionView() {
 
   const managerSalary = (id: string) => Number(settings?.managerSalaries?.[id] ?? 0);
   const managerCommissionRate = (id: string) => Number(settings?.commissionRates?.[id] ?? 0);
+
+  /*
+   * Approved revenue, month by month, straight off the deal's own month values —
+   * the same figures the Live P&L adds up. It used to be booked entirely into
+   * `signedMonthIndex`, which nothing on the CRM form ever set, so every
+   * approved deal piled into January and no month ever crossed its threshold.
+   */
   const monthlyRevenue = (id: string) => {
-    const res = new Array(12).fill(0);
+    const res: number[] = new Array(12).fill(0);
     deals
       .filter((d) => d.managerId === id && isLiveDeal(d))
       .forEach((d) => {
-        const m = d.signedMonthIndex !== undefined && d.signedMonthIndex !== null
-          ? d.signedMonthIndex
-          : 0;
-        const monthIdx = Math.min(11, Math.max(0, Number(m || 0)));
-        const total = sum(d.monthValues || []);
-        res[monthIdx] += total;
+        (d.monthValues || []).forEach((value, index) => {
+          if (index < 12) res[index] += Number(value || 0);
+        });
       });
     return res;
   };
+
+  /*
+   * Whose sheet is worth showing. Broadening "talent manager" to include the
+   * admin and operations roles (which is how the client runs the portal) would
+   * otherwise add an empty sheet for every back-office account — so a sheet
+   * appears once there is something on it: deals, a salary or a rate.
+   */
+  const managers = visibleManagers.filter(
+    (m) =>
+      managerSalary(m.id) > 0 ||
+      managerCommissionRate(m.id) > 0 ||
+      deals.some((d) => d.managerId === m.id),
+  );
   const monthlyOwnCommission = (id: string) => {
     const threshold = managerSalary(id) * 5;
     const rate = managerCommissionRate(id) / 100;

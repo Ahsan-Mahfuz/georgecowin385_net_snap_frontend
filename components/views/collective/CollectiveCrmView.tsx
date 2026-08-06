@@ -100,10 +100,12 @@ export default function CollectiveCrmView() {
   const { data: dealData = [] } = useGetCollectiveDealsQuery();
   const [createDeal, { isLoading: creating }] = useCreateCollectiveDealMutation();
   const [updateDeal, { isLoading: updating }] = useUpdateCollectiveDealMutation();
-  const [deleteDeal] = useDeleteCollectiveDealMutation();
+  const [deleteDeal, { isLoading: deleting }] = useDeleteCollectiveDealMutation();
   const [createInvoice, { isLoading: invoicing }] = useCreateCollectiveInvoiceMutation();
   const [updateInstallment] = useUpdateCollectiveInstallmentMutation();
   const [createInstallmentInvoice] = useCreateCollectiveInstallmentInvoiceMutation();
+  // Which scheduled payment is being drafted in Xero, so only its own button spins.
+  const [draftingInstallment, setDraftingInstallment] = useState<string | null>(null);
   // Empty when the Collective Xero is not connected — the field is free text then.
   const { data: xeroContacts = [] } = useGetXeroContactsQuery("collective");
   const confirm = useConfirm();
@@ -492,11 +494,14 @@ export default function CollectiveCrmView() {
       ),
     });
     if (!ok) return;
+    setDraftingInstallment(`${deal.id}:${monthIndex}`);
     try {
       await createInstallmentInvoice({ id: deal.id, monthIndex }).unwrap();
       toast.success(`${months[monthIndex]} invoice drafted in Collective Xero.`);
     } catch (err) {
       toast.error(apiErrorMessage(err, "Could not reach Xero."));
+    } finally {
+      setDraftingInstallment(null);
     }
   };
 
@@ -921,12 +926,15 @@ export default function CollectiveCrmView() {
                             <button
                               className="secondary mini-button"
                               type="button"
+                              disabled={draftingInstallment === `${deal.id}:${installment.monthIndex}`}
                               onClick={(event) => {
                                 event.stopPropagation();
                                 raiseInstallmentInvoice(deal, installment.monthIndex, installment.amount);
                               }}
                             >
-                              Raise in Xero
+                              {draftingInstallment === `${deal.id}:${installment.monthIndex}`
+                                ? "Raising…"
+                                : "Raise in Xero"}
                             </button>
                           ) : null}
                         </div>
@@ -1014,6 +1022,19 @@ export default function CollectiveCrmView() {
                   {contactHint ? (
                     <small className={`field-hint ${form.xeroContactId ? "contact-matched" : ""}`}>
                       {contactHint}
+                    </small>
+                  ) : null}
+                  {/* The brand is now created in Xero the moment the deal is
+                      saved, not months later with its first invoice — so say
+                      what Xero did with it. Silence here is what "the contact
+                      details and address aren't being added to Xero" felt like. */}
+                  {editingDeal?.xeroContactStatus ? (
+                    <small
+                      className={`field-hint ${
+                        editingDeal.xeroContactStatus.startsWith("Saved in") ? "contact-matched" : ""
+                      }`}
+                    >
+                      <strong>Xero:</strong> {editingDeal.xeroContactStatus}
                     </small>
                   ) : null}
                 </div>
@@ -1304,9 +1325,10 @@ export default function CollectiveCrmView() {
                       <button
                         className="secondary danger-button"
                         type="button"
+                        disabled={deleting}
                         onClick={() => handleDelete(editingDeal)}
                       >
-                        Delete deal
+                        {deleting ? "Deleting…" : "Delete deal"}
                       </button>
                     ) : null}
                   </div>

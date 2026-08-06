@@ -9,15 +9,23 @@ import { dealRevenue } from "@/lib/pl";
 import { useCreatorsTeam } from "@/hooks/useCreatorsTeam";
 import { useGetDealsQuery } from "@/redux/api/dealApi";
 import { useGetSettingsQuery, useUpdateSettingsMutation } from "@/redux/api/settingsApi";
-import { toDeal } from "@/lib/adapters";
+import { useSetUserStatusMutation } from "@/redux/api/userApi";
+import { toDeal, TALENT_MANAGER_ROLES } from "@/lib/adapters";
+import { useConfirm } from "@/components/ui/ConfirmProvider";
+import { apiErrorMessage, useToast } from "@/components/ui/Toast";
 
 export default function ManagersView() {
-  const canAdminister = true;
+  const currentUser = useSelector((s: RootState) => s.session.user);
+  const canAdminister = currentUser?.role === "admin" || currentUser?.role === "operations";
   const year = useSelector((s: RootState) => s.year.selectedYear);
   const { users } = useCreatorsTeam();
   const { data: dealData = [] } = useGetDealsQuery({ year: String(year) });
   const { data: settings } = useGetSettingsQuery();
   const [updateSettings, { isLoading: saving }] = useUpdateSettingsMutation();
+  const [setUserStatus] = useSetUserStatusMutation();
+  const [removingId, setRemovingId] = useState<string | null>(null);
+  const confirm = useConfirm();
+  const toast = useToast();
   const deals: Deal[] = dealData.map(toDeal);
 
   // Unsaved edits to salary / commission rate, keyed by manager id.
@@ -40,7 +48,16 @@ export default function ManagersView() {
     return months.map((_, i) => own[i]);
   };
 
-  const activeStaff: Profile[] = users.filter((user) => user.role !== "admin");
+  /*
+   * Everyone, admins included. Admins used to be filtered out of this table
+   * altogether — which, in a portal where the talent managers are on the admin
+   * role, meant there was no row on which to key their salary or commission
+   * rate, and so their commission sheet could never be made to work.
+   */
+  const activeStaff: Profile[] = users;
+  /** Only the people who carry deals earn commission on them. */
+  const earnsCommission = (member: Profile) =>
+    (TALENT_MANAGER_ROLES as readonly string[]).includes(member.role);
   const hasChanges = Object.keys(salaryDraft).length > 0 || Object.keys(rateDraft).length > 0;
 
   const handleSave = async () => {
@@ -52,12 +69,45 @@ export default function ManagersView() {
     Object.entries(rateDraft).forEach(([id, v]) => {
       commissionRates[id] = Number(v || 0);
     });
-    await updateSettings({ managerSalaries, commissionRates }).unwrap();
-    setSalaryDraft({});
-    setRateDraft({});
+    const changed = Object.keys(managerSalaries).length + Object.keys(commissionRates).length;
+    try {
+      await updateSettings({ managerSalaries, commissionRates }).unwrap();
+      setSalaryDraft({});
+      setRateDraft({});
+      toast.success(`Saved ${changed} change${changed === 1 ? "" : "s"} to salary and commission.`);
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Could not save those changes."));
+    }
   };
 
-  const noop = () => {};
+  /**
+   * "Remove access" used to be wired to a no-op, so it looked as though it had
+   * worked and the person could still log in. It disables the account, which is
+   * the reversible version of removing them — their deals and history stay put.
+   */
+  const handleRemoveAccess = async (member: Profile) => {
+    const ok = await confirm({
+      tone: "danger",
+      title: "Remove portal access?",
+      confirmLabel: "Remove access",
+      message: (
+        <>
+          <strong>{member.name}</strong> will be blocked from signing in. Their deals, commission
+          and history are kept, and you can restore access from Permissions at any time.
+        </>
+      ),
+    });
+    if (!ok) return;
+    setRemovingId(member.id);
+    try {
+      await setUserStatus({ id: member.id, status: "disabled" }).unwrap();
+      toast.success(`${member.name} can no longer sign in.`);
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Could not remove that person's access."));
+    } finally {
+      setRemovingId(null);
+    }
+  };
 
   return (
     <>
@@ -107,7 +157,8 @@ export default function ManagersView() {
               <tbody>
                 {activeStaff.length ? (
                   activeStaff.map((member) => {
-                    const isManager = member.role === "manager";
+                    const isManager = earnsCommission(member);
+                    const isSelf = member.id === currentUser?.id;
                     return (
                       <tr key={member.id}>
                         <td>{member.name}</td>
@@ -121,6 +172,7 @@ export default function ManagersView() {
                               min="0"
                               step="1"
                               aria-label={`${member.name} monthly salary`}
+                              disabled={!canAdminister || saving}
                               value={salaryDraft[member.id] !== undefined ? salaryDraft[member.id] : String(savedSalary(member.id))}
                               onChange={(e) => setSalaryDraft({ ...salaryDraft, [member.id]: e.target.value })}
                             />
@@ -138,6 +190,7 @@ export default function ManagersView() {
                                 max="100"
                                 step="0.1"
                                 aria-label={`${member.name} commission rate percent`}
+                                disabled={!canAdminister || saving}
                                 value={rateDraft[member.id] !== undefined ? rateDraft[member.id] : String(savedRate(member.id))}
                                 onChange={(e) => setRateDraft({ ...rateDraft, [member.id]: e.target.value })}
                               />
@@ -151,10 +204,17 @@ export default function ManagersView() {
                         <td>{isManager ? money(sum(monthlyManagerCommission(member.id))) : "-"}</td>
                         <td>{isManager ? deals.filter((d) => d.managerId === member.id).length : "-"}</td>
                         <td>
-                          {canAdminister ? (
-                            <button className="secondary danger-button" type="button" onClick={noop}>
-                              Remove access
+                          {canAdminister && !isSelf ? (
+                            <button
+                              className="secondary danger-button"
+                              type="button"
+                              disabled={removingId === member.id}
+                              onClick={() => handleRemoveAccess(member)}
+                            >
+                              {removingId === member.id ? "Removing…" : "Remove access"}
                             </button>
+                          ) : isSelf ? (
+                            "You"
                           ) : (
                             "View only"
                           )}

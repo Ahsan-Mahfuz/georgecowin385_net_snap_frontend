@@ -39,9 +39,11 @@ export default function OverheadsView() {
   const { data: expenseData = NO_EXPENSES } = useGetExpensesQuery();
   const { data: dealData = NO_DEALS } = useGetDealsQuery({ year: String(year) });
 
-  const [createOverhead] = useCreateOverheadMutation();
+  const [createOverhead, { isLoading: creating }] = useCreateOverheadMutation();
   const [updateOverhead] = useUpdateOverheadMutation();
   const [deleteOverhead] = useDeleteOverheadMutation();
+  // Which line is mid-delete, so only that row's button spins.
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const confirm = useConfirm();
   const toast = useToast();
 
@@ -176,11 +178,14 @@ export default function OverheadsView() {
       ),
     });
     if (!ok) return;
+    setDeletingId(row.id);
     try {
       await deleteOverhead(row.id).unwrap();
       toast.success(`${row.label} deleted.`);
     } catch (err) {
       toast.error(apiErrorMessage(err, "Could not delete that line."));
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -241,9 +246,10 @@ export default function OverheadsView() {
                       <button
                         className="secondary danger-button small"
                         type="button"
+                        disabled={deletingId === row.id}
                         onClick={() => handleDeleteRow(row)}
                       >
-                        Delete
+                        {deletingId === row.id ? "Deleting…" : "Delete"}
                       </button>
                     ) : (
                       <span className="muted-note">not saved yet</span>
@@ -292,8 +298,8 @@ export default function OverheadsView() {
                 onChange={(e) => setNewLabel(e.target.value)}
               />
             </div>
-            <button className="primary" type="submit">
-              Add line
+            <button className="primary" type="submit" disabled={creating}>
+              {creating ? "Adding…" : "Add line"}
             </button>
           </form>
         </div>
